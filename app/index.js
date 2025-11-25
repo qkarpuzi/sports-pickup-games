@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Home() {
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -28,6 +30,21 @@ export default function Home() {
     }
   }
 
+  function handleCreateGame() {
+    if (!user) {
+      Alert.alert(
+        'Login Required',
+        'You need to login to create a game',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Login', onPress: () => router.push('/login') }
+        ]
+      );
+      return;
+    }
+    router.push('/create-game');
+  }
+
   function formatDate(dateString) {
     const date = new Date(dateString);
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -35,9 +52,22 @@ export default function Home() {
 
   return (
     <View style={styles.container}>
+      {/* Header with Login/Profile Button */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Pickup Games</Text>
+        <TouchableOpacity 
+          style={styles.profileButton}
+          onPress={() => user ? router.push('/profile') : router.push('/login')}
+        >
+          <Text style={styles.profileButtonText}>
+            {user ? '👤 Profile' : '🔐 Login'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       <TouchableOpacity 
         style={styles.createButton}
-        onPress={() => router.push('/create-game')}
+        onPress={handleCreateGame}
       >
         <Text style={styles.createButtonText}>+ Create New Game</Text>
       </TouchableOpacity>
@@ -74,6 +104,28 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
     padding: 16,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  profileButton: {
+    backgroundColor: '#34C759',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  profileButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
   },
   createButton: {
     backgroundColor: '#007AFF',

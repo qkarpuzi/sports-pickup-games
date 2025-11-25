@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function CreateGame() {
   const [sport, setSport] = useState('');
@@ -11,9 +12,17 @@ export default function CreateGame() {
   const [maxPlayers, setMaxPlayers] = useState('10');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
   const router = useRouter();
 
   async function handleCreateGame() {
+    // Check if user is logged in
+    if (!user) {
+      Alert.alert('Error', 'You must be logged in to create a game');
+      router.replace('/login');
+      return;
+    }
+
     // Validation
     if (!sport.trim() || !place.trim() || !date.trim() || !time.trim()) {
       Alert.alert('Error', 'Please fill in all required fields');
@@ -26,11 +35,6 @@ export default function CreateGame() {
     setLoading(true);
 
     try {
-      // First, sign in anonymously (we'll add proper auth later)
-      const { data: { user }, error: authError } = await supabase.auth.signInAnonymously();
-      
-      if (authError) throw authError;
-
       // Create the game
       const { data, error } = await supabase
         .from('games')

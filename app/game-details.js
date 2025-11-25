@@ -2,11 +2,14 @@ import { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function GameDetails() {
   const [game, setGame] = useState(null);
   const [participants, setParticipants] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [hasJoined, setHasJoined] = useState(false);
+  const { user } = useAuth();
   const router = useRouter();
   const { id } = useLocalSearchParams();
 
@@ -16,6 +19,13 @@ export default function GameDetails() {
       fetchParticipants();
     }
   }, [id]);
+
+  useEffect(() => {
+    if (user && participants.length > 0) {
+      const joined = participants.some(p => p.user_id === user.id);
+      setHasJoined(joined);
+    }
+  }, [user, participants]);
 
   async function fetchGameDetails() {
     try {
@@ -38,7 +48,7 @@ export default function GameDetails() {
     try {
       const { data, error } = await supabase
         .from('game_participants')
-        .select('*')
+        .select('*, user_profiles(display_name)')
         .eq('game_id', id);
 
       if (error) throw error;
@@ -49,26 +59,24 @@ export default function GameDetails() {
   }
 
   async function handleJoinGame() {
+    if (!user) {
+      Alert.alert(
+        'Login Required',
+        'You need to login to join a game',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Login', onPress: () => router.push('/login') }
+        ]
+      );
+      return;
+    }
+
+    if (hasJoined) {
+      Alert.alert('Info', 'You already joined this game!');
+      return;
+    }
+
     try {
-      // Sign in anonymously
-      const { data: { user }, error: authError } = await supabase.auth.signInAnonymously();
-      
-      if (authError) throw authError;
-
-      // Check if already joined
-      const { data: existing } = await supabase
-        .from('game_participants')
-        .select('*')
-        .eq('game_id', id)
-        .eq('user_id', user.id)
-        .single();
-
-      if (existing) {
-        Alert.alert('Info', 'You already joined this game!');
-        return;
-      }
-
-      // Join the game
       const { error } = await supabase
         .from('game_participants')
         .insert([
@@ -81,10 +89,42 @@ export default function GameDetails() {
       if (error) throw error;
 
       Alert.alert('Success', 'You joined the game!');
-      fetchParticipants(); // Refresh participants list
+      fetchParticipants();
     } catch (error) {
       Alert.alert('Error', error.message);
     }
+  }
+
+  async function handleLeaveGame() {
+    if (!user) return;
+
+    Alert.alert(
+      'Leave Game',
+      'Are you sure you want to leave this game?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('game_participants')
+                .delete()
+                .eq('game_id', id)
+                .eq('user_id', user.id);
+
+              if (error) throw error;
+
+              Alert.alert('Success', 'You left the game');
+              fetchParticipants();
+            } catch (error) {
+              Alert.alert('Error', error.message);
+            }
+          },
+        },
+      ]
+    );
   }
 
   function formatDate(dateString) {
@@ -144,12 +184,21 @@ export default function GameDetails() {
           </View>
         )}
 
-        <TouchableOpacity 
-          style={styles.joinButton}
-          onPress={handleJoinGame}
-        >
-          <Text style={styles.joinButtonText}>Join Game</Text>
-        </TouchableOpacity>
+        {hasJoined ? (
+          <TouchableOpacity 
+            style={styles.leaveButton}
+            onPress={handleLeaveGame}
+          >
+            <Text style={styles.leaveButtonText}>Leave Game</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity 
+            style={styles.joinButton}
+            onPress={handleJoinGame}
+          >
+            <Text style={styles.joinButtonText}>Join Game</Text>
+          </TouchableOpacity>
+        )}
 
         {participants.length > 0 && (
           <View style={styles.participantsSection}>
@@ -157,7 +206,7 @@ export default function GameDetails() {
             {participants.map((participant) => (
               <View key={participant.id} style={styles.participantItem}>
                 <Text style={styles.participantText}>
-                  Player {participant.user_id.substring(0, 8)}...
+                  {participant.user_profiles?.display_name || 'Anonymous Player'}
                 </Text>
               </View>
             ))}
@@ -224,6 +273,19 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   joinButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  leaveButton: {
+    backgroundColor: '#FF3B30',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 20,
+  },
+  leaveButtonText: {
     color: 'white',
     fontSize: 18,
     fontWeight: 'bold',
