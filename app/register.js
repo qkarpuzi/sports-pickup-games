@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function Register() {
   const [email, setEmail] = useState('');
@@ -10,7 +11,6 @@ export default function Register() {
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
   const { signUp } = useAuth();
-  console.log('signUp function:', signUp);
   const router = useRouter();
 
   async function handleRegister() {
@@ -32,8 +32,9 @@ export default function Register() {
     setLoading(true);
     try {
       await signUp(email, password, displayName);
-      Alert.alert('Success', 'Account created! Please check your email to verify.');
-      router.replace('/login');
+      Alert.alert('Success', 'Account created successfully!', [
+        { text: 'OK', onPress: () => router.replace('/login') }
+      ]);
     } catch (error) {
       Alert.alert('Error', error.message);
     } finally {
@@ -42,107 +43,198 @@ export default function Register() {
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Create Account</Text>
-      
-      <TextInput
-        style={styles.input}
-        placeholder="Display Name"
-        value={displayName}
-        onChangeText={setDisplayName}
-      />
-
-      <TextInput
-        style={styles.input}
-        placeholder="Email"
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        keyboardType="email-address"
-      />
-
-      <TextInput
-        style={styles.input}
-        placeholder="Password (min 6 characters)"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-      />
-
-      <TextInput
-        style={styles.input}
-        placeholder="Confirm Password"
-        value={confirmPassword}
-        onChangeText={setConfirmPassword}
-        secureTextEntry
-      />
-
-      <TouchableOpacity 
-        style={[styles.button, loading && styles.buttonDisabled]}
-        onPress={handleRegister}
-        disabled={loading}
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <LinearGradient
+        colors={['#667eea', '#764ba2']}
+        style={styles.gradient}
       >
-        <Text style={styles.buttonText}>
-          {loading ? 'Creating Account...' : 'Register'}
-        </Text>
-      </TouchableOpacity>
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.content}>
+            <View style={styles.headerSection}>
+              <Text style={styles.emoji}>🎮</Text>
+              <Text style={styles.title}>Join Us!</Text>
+              <Text style={styles.subtitle}>Create your account</Text>
+            </View>
 
-      <TouchableOpacity 
-        style={styles.linkButton}
-        onPress={() => router.back()}
-      >
-        <Text style={styles.linkText}>
-          Already have an account? Login
-        </Text>
-      </TouchableOpacity>
-    </View>
+            <View style={styles.formSection}>
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputIcon}>👤</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Display Name"
+                  placeholderTextColor="#999"
+                  value={displayName}
+                  onChangeText={setDisplayName}
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputIcon}>📧</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Email"
+                  placeholderTextColor="#999"
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputIcon}>🔒</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Password (min 6 characters)"
+                  placeholderTextColor="#999"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputIcon}>✅</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Confirm Password"
+                  placeholderTextColor="#999"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry
+                />
+              </View>
+
+              <TouchableOpacity 
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleRegister}
+                disabled={loading}
+              >
+                <LinearGradient
+                  colors={['#f093fb', '#f5576c']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.buttonGradient}
+                >
+                  <Text style={styles.buttonText}>
+                    {loading ? 'Creating Account...' : 'Create Account'}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.linkButton}
+                onPress={() => router.back()}
+              >
+                <Text style={styles.linkText}>
+                  Already have an account? <Text style={styles.linkTextBold}>Login</Text>
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </ScrollView>
+      </LinearGradient>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
-    backgroundColor: '#f5f5f5',
+  },
+  gradient: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
   },
+  content: {
+    paddingHorizontal: 30,
+    paddingVertical: 40,
+  },
+  headerSection: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  emoji: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
   title: {
-    fontSize: 28,
+    fontSize: 36,
     fontWeight: 'bold',
-    marginBottom: 30,
-    textAlign: 'center',
-    color: '#333',
+    color: 'white',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 18,
+    color: 'rgba(255,255,255,0.9)',
+  },
+  formSection: {
+    width: '100%',
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    borderRadius: 15,
+    marginBottom: 16,
+    paddingHorizontal: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  inputIcon: {
+    fontSize: 20,
+    marginRight: 12,
   },
   input: {
-    backgroundColor: 'white',
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: '#ddd',
+    flex: 1,
+    paddingVertical: 16,
     fontSize: 16,
+    color: '#333',
   },
   button: {
-    backgroundColor: '#007AFF',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
+    borderRadius: 15,
+    overflow: 'hidden',
     marginTop: 10,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
   buttonDisabled: {
-    backgroundColor: '#999',
+    opacity: 0.6,
+  },
+  buttonGradient: {
+    paddingVertical: 18,
+    alignItems: 'center',
   },
   buttonText: {
     color: 'white',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
   },
   linkButton: {
-    marginTop: 20,
+    marginTop: 24,
     alignItems: 'center',
   },
   linkText: {
-    color: '#007AFF',
-    fontSize: 14,
+    color: 'white',
+    fontSize: 16,
+  },
+  linkTextBold: {
+    fontWeight: 'bold',
+    textDecorationLine: 'underline',
   },
 });

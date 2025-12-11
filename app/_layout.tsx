@@ -29,6 +29,10 @@ export default function Layout() {
           name="profile" 
           options={{ title: 'Profile' }} 
         />
+        <Stack.Screen 
+          name="edit-game" 
+          options={{ title: 'Edit Game' }} 
+        />
       </Stack>
     </AuthProvider>
   );

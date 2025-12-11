@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, RefreshControl } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function GameDetails() {
   const [game, setGame] = useState(null);
   const [participants, setParticipants] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [hasJoined, setHasJoined] = useState(false);
   const { user } = useAuth();
   const router = useRouter();
@@ -41,6 +43,7 @@ export default function GameDetails() {
       Alert.alert('Error', error.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
 
@@ -48,14 +51,48 @@ export default function GameDetails() {
     try {
       const { data, error } = await supabase
         .from('game_participants')
-        .select('*, user_profiles(display_name)')
+        .select('*')
         .eq('game_id', id);
 
       if (error) throw error;
-      setParticipants(data || []);
+
+      if (data && data.length > 0) {
+        const participantsWithNames = await Promise.all(
+          data.map(async (participant) => {
+            try {
+              const { data: profile } = await supabase
+                .from('user_profiles')
+                .select('display_name')
+                .eq('id', participant.user_id)
+                .single();
+              
+              return {
+                ...participant,
+                display_name: profile?.display_name || 'Anonymous Player'
+              };
+            } catch (err) {
+              return {
+                ...participant,
+                display_name: 'Anonymous Player'
+              };
+            }
+          })
+        );
+        
+        setParticipants(participantsWithNames);
+      } else {
+        setParticipants([]);
+      }
     } catch (error) {
       console.error('Error fetching participants:', error);
+      setParticipants([]);
     }
+  }
+
+  function onRefresh() {
+    setRefreshing(true);
+    fetchGameDetails();
+    fetchParticipants();
   }
 
   async function handleJoinGame() {
@@ -139,9 +176,19 @@ export default function GameDetails() {
     });
   }
 
+  function getSportEmoji(sport) {
+    const sportLower = sport.toLowerCase();
+    if (sportLower.includes('football') || sportLower.includes('soccer')) return '⚽';
+    if (sportLower.includes('basketball')) return '🏀';
+    if (sportLower.includes('tennis')) return '🎾';
+    if (sportLower.includes('volleyball')) return '🏐';
+    if (sportLower.includes('baseball')) return '⚾';
+    return '🏃';
+  }
+
   if (loading) {
     return (
-      <View style={styles.container}>
+      <View style={styles.loadingContainer}>
         <Text style={styles.loadingText}>Loading...</Text>
       </View>
     );
@@ -149,65 +196,122 @@ export default function GameDetails() {
 
   if (!game) {
     return (
-      <View style={styles.container}>
+      <View style={styles.loadingContainer}>
         <Text style={styles.errorText}>Game not found</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView 
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+      <LinearGradient
+        colors={['#667eea', '#764ba2']}
+        style={styles.header}
+      >
+        <Text style={styles.sportEmoji}>{getSportEmoji(game.sport)}</Text>
+        <Text style={styles.sportName}>{game.sport}</Text>
+        <Text style={styles.dateText}>{formatDate(game.dt)}</Text>
+      </LinearGradient>
+
       <View style={styles.content}>
-        <Text style={styles.sport}>{game.sport}</Text>
-        
         <View style={styles.infoCard}>
-          <Text style={styles.infoLabel}>📍 Location</Text>
-          <Text style={styles.infoValue}>{game.place}</Text>
+          <View style={styles.infoRow}>
+            <View style={styles.iconCircle}>
+              <Text style={styles.iconText}>📍</Text>
+            </View>
+            <View style={styles.infoContent}>
+              <Text style={styles.infoLabel}>Location</Text>
+              <Text style={styles.infoValue}>{game.place}</Text>
+            </View>
+          </View>
         </View>
 
         <View style={styles.infoCard}>
-          <Text style={styles.infoLabel}>🕐 Date & Time</Text>
-          <Text style={styles.infoValue}>{formatDate(game.dt)}</Text>
-        </View>
-
-        <View style={styles.infoCard}>
-          <Text style={styles.infoLabel}>👥 Players</Text>
-          <Text style={styles.infoValue}>
-            {participants.length} / {game.max_players || 10}
-          </Text>
+          <View style={styles.infoRow}>
+            <View style={styles.iconCircle}>
+              <Text style={styles.iconText}>👥</Text>
+            </View>
+            <View style={styles.infoContent}>
+              <Text style={styles.infoLabel}>Players</Text>
+              <Text style={styles.infoValue}>
+                {participants.length} / {game.max_players || 10} joined
+              </Text>
+            </View>
+          </View>
         </View>
 
         {game.description && (
-          <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>📝 Description</Text>
-            <Text style={styles.infoValue}>{game.description}</Text>
+          <View style={styles.descriptionCard}>
+            <Text style={styles.descriptionLabel}>📝 About this game</Text>
+            <Text style={styles.descriptionText}>{game.description}</Text>
           </View>
         )}
 
-        {hasJoined ? (
+        {user && game.created_by === user.id ? (
+          // Owner sees Edit button
+          <TouchableOpacity 
+            style={styles.editButton}
+            onPress={() => router.push(`/edit-game?id=${game.id}`)}
+          >
+            <LinearGradient
+              colors={['#f093fb', '#f5576c']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.editButtonGradient}
+            >
+              <Text style={styles.editButtonText}>✏️ Edit Game</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        ) : hasJoined ? (
+          // Participant sees Leave button
           <TouchableOpacity 
             style={styles.leaveButton}
             onPress={handleLeaveGame}
           >
-            <Text style={styles.leaveButtonText}>Leave Game</Text>
+            <Text style={styles.leaveButtonText}>❌ Leave Game</Text>
           </TouchableOpacity>
         ) : (
+          // Others see Join button
           <TouchableOpacity 
             style={styles.joinButton}
             onPress={handleJoinGame}
           >
-            <Text style={styles.joinButtonText}>Join Game</Text>
+            <LinearGradient
+              colors={['#34C759', '#28a745']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.joinButtonGradient}
+            >
+              <Text style={styles.joinButtonText}>✨ Join Game</Text>
+            </LinearGradient>
           </TouchableOpacity>
         )}
 
         {participants.length > 0 && (
           <View style={styles.participantsSection}>
-            <Text style={styles.participantsTitle}>Participants ({participants.length})</Text>
-            {participants.map((participant) => (
-              <View key={participant.id} style={styles.participantItem}>
-                <Text style={styles.participantText}>
-                  {participant.user_profiles?.display_name || 'Anonymous Player'}
+            <Text style={styles.participantsTitle}>
+              🎮 Players ({participants.length})
+            </Text>
+            {participants.map((participant, index) => (
+              <View key={participant.id} style={styles.participantCard}>
+                <View style={styles.participantAvatar}>
+                  <Text style={styles.participantAvatarText}>
+                    {participant.display_name?.charAt(0).toUpperCase() || '?'}
+                  </Text>
+                </View>
+                <Text style={styles.participantName}>
+                  {participant.display_name}
                 </Text>
+                {participant.user_id === user?.id && (
+                  <View style={styles.youBadge}>
+                    <Text style={styles.youBadgeText}>You</Text>
+                  </View>
+                )}
               </View>
             ))}
           </View>
@@ -220,57 +324,139 @@ export default function GameDetails() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f8f9fa',
   },
-  content: {
-    padding: 16,
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
   },
   loadingText: {
-    textAlign: 'center',
-    marginTop: 40,
     fontSize: 16,
-    color: '#666',
+    color: '#999',
   },
   errorText: {
-    textAlign: 'center',
-    marginTop: 40,
     fontSize: 16,
-    color: 'red',
+    color: '#ff3b30',
   },
-  sport: {
-    fontSize: 28,
+  header: {
+    paddingTop: 60,
+    paddingBottom: 40,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  sportEmoji: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  sportName: {
+    fontSize: 32,
     fontWeight: 'bold',
-    marginBottom: 20,
-    color: '#333',
+    color: 'white',
+    marginBottom: 8,
+  },
+  dateText: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.9)',
+  },
+  content: {
+    padding: 20,
   },
   infoCard: {
     backgroundColor: 'white',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 12,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowRadius: 8,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconCircle: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#f8f9fa',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  iconText: {
+    fontSize: 24,
+  },
+  infoContent: {
+    flex: 1,
   },
   infoLabel: {
     fontSize: 14,
-    color: '#666',
+    color: '#999',
     marginBottom: 4,
   },
   infoValue: {
-    fontSize: 16,
+    fontSize: 18,
+    fontWeight: '600',
     color: '#333',
-    fontWeight: '500',
+  },
+  descriptionCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  descriptionLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 12,
+  },
+  descriptionText: {
+    fontSize: 16,
+    color: '#666',
+    lineHeight: 24,
+  },
+  editButton: {
+    borderRadius: 15,
+    overflow: 'hidden',
+    marginBottom: 16,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  editButtonGradient: {
+    paddingVertical: 18,
+    alignItems: 'center',
+  },
+  editButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   joinButton: {
-    backgroundColor: '#34C759',
-    padding: 16,
-    borderRadius: 8,
+    borderRadius: 15,
+    overflow: 'hidden',
+    marginBottom: 16,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  joinButtonGradient: {
+    paddingVertical: 18,
     alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 20,
   },
   joinButtonText: {
     color: 'white',
@@ -278,12 +464,16 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   leaveButton: {
-    backgroundColor: '#FF3B30',
-    padding: 16,
-    borderRadius: 8,
+    backgroundColor: '#ff3b30',
+    paddingVertical: 18,
+    borderRadius: 15,
     alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 20,
+    marginBottom: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
   },
   leaveButtonText: {
     color: 'white',
@@ -294,19 +484,53 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   participantsTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 16,
+  },
+  participantCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  participantAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#667eea',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  participantAvatarText: {
+    color: 'white',
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 12,
+  },
+  participantName: {
+    flex: 1,
+    fontSize: 16,
     color: '#333',
+    fontWeight: '600',
   },
-  participantItem: {
-    backgroundColor: 'white',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
+  youBadge: {
+    backgroundColor: '#f093fb',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
-  participantText: {
-    fontSize: 14,
-    color: '#666',
+  youBadgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });

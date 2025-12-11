@@ -1,22 +1,24 @@
 import { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-
+import { LinearGradient } from 'expo-linear-gradient';
 export default function Profile() {
   const { user, signOut } = useAuth();
   const [profile, setProfile] = useState(null);
   const [myGames, setMyGames] = useState([]);
+  const [joinedGames, setJoinedGames] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
-
   useEffect(() => {
     if (user) {
       fetchProfile();
       fetchMyGames();
+      fetchJoinedGames();
     }
   }, [user]);
-
   async function fetchProfile() {
     try {
       const { data, error } = await supabase
@@ -24,14 +26,14 @@ export default function Profile() {
         .select('*')
         .eq('id', user.id)
         .single();
-
       if (error) throw error;
       setProfile(data);
     } catch (error) {
       console.error('Error fetching profile:', error);
+    } finally {
+      setLoading(false);
     }
   }
-
   async function fetchMyGames() {
     try {
       const { data, error } = await supabase
@@ -39,14 +41,41 @@ export default function Profile() {
         .select('*')
         .eq('created_by', user.id)
         .order('dt', { ascending: true });
-
       if (error) throw error;
       setMyGames(data || []);
     } catch (error) {
       console.error('Error fetching games:', error);
     }
   }
-
+  async function fetchJoinedGames() {
+    try {
+      const { data: participantData, error } = await supabase
+        .from('game_participants')
+        .select('game_id')
+        .eq('user_id', user.id);
+      if (error) throw error;
+      if (participantData && participantData.length > 0) {
+        const gameIds = participantData.map(p => p.game_id);
+       
+        const { data: gamesData, error: gamesError } = await supabase
+          .from('games')
+          .select('*')
+          .in('id', gameIds)
+          .order('dt', { ascending: true });
+        if (gamesError) throw gamesError;
+        setJoinedGames(gamesData || []);
+      }
+    } catch (error) {
+      console.error('Error fetching joined games:', error);
+    }
+  }
+  function onRefresh() {
+    setRefreshing(true);
+    fetchProfile();
+    fetchMyGames();
+    fetchJoinedGames();
+    setRefreshing(false);
+  }
   async function handleLogout() {
     Alert.alert(
       'Logout',
@@ -68,100 +97,334 @@ export default function Profile() {
       ]
     );
   }
-
+  function formatDate(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+  function getSportEmoji(sport) {
+    const sportLower = sport.toLowerCase();
+    if (sportLower.includes('football') || sportLower.includes('soccer')) return '⚽';
+    if (sportLower.includes('basketball')) return '🏀';
+    if (sportLower.includes('tennis')) return '🎾';
+    if (sportLower.includes('volleyball')) return '🏐';
+    if (sportLower.includes('baseball')) return '⚾';
+    return '🏃';
+  }
   if (!user) {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>Please login to view your profile</Text>
-        <TouchableOpacity 
-          style={styles.button}
-          onPress={() => router.push('/login')}
+        <LinearGradient
+          colors={['#667eea', '#764ba2']}
+          style={styles.notLoggedInGradient}
         >
-          <Text style={styles.buttonText}>Go to Login</Text>
-        </TouchableOpacity>
+          <Text style={styles.notLoggedInEmoji}>🔐</Text>
+          <Text style={styles.notLoggedInTitle}>Please Login</Text>
+          <Text style={styles.notLoggedInText}>Login to view your profile and games</Text>
+         
+          <TouchableOpacity
+            style={styles.loginButton}
+            onPress={() => router.push('/login')}
+          >
+            <Text style={styles.loginButtonText}>Go to Login</Text>
+          </TouchableOpacity>
+        </LinearGradient>
       </View>
     );
   }
-
   return (
-    <View style={styles.container}>
-      <View style={styles.profileCard}>
-        <Text style={styles.title}>Your Profile</Text>
-        <Text style={styles.label}>Display Name:</Text>
-        <Text style={styles.value}>{profile?.display_name || 'Anonymous'}</Text>
-        
-        <Text style={styles.label}>Email:</Text>
-        <Text style={styles.value}>{user.email || 'N/A'}</Text>
-
-        <Text style={styles.label}>Games Created:</Text>
-        <Text style={styles.value}>{myGames.length}</Text>
-      </View>
-
-      <TouchableOpacity 
-        style={styles.logoutButton}
-        onPress={handleLogout}
+    <ScrollView
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+      <LinearGradient
+        colors={['#667eea', '#764ba2']}
+        style={styles.header}
       >
-        <Text style={styles.logoutButtonText}>Logout</Text>
-      </TouchableOpacity>
-    </View>
+        <View style={styles.avatarContainer}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>
+              {profile?.display_name?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || '?'}
+            </Text>
+          </View>
+        </View>
+        <Text style={styles.displayName}>{profile?.display_name || 'User'}</Text>
+        <Text style={styles.email}>{user.email}</Text>
+      </LinearGradient>
+      <View style={styles.content}>
+        {/* Stats Cards */}
+        <View style={styles.statsContainer}>
+          <View style={styles.statCard}>
+            <Text style={styles.statNumber}>{myGames.length}</Text>
+            <Text style={styles.statLabel}>Games Created</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statNumber}>{joinedGames.length}</Text>
+            <Text style={styles.statLabel}>Games Joined</Text>
+          </View>
+        </View>
+        {/* My Created Games */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🎮 My Created Games</Text>
+          {myGames.length === 0 ? (
+            <View style={styles.emptySection}>
+              <Text style={styles.emptyText}>You haven't created any games yet</Text>
+            </View>
+          ) : (
+            myGames.map((game) => (
+              <View key={game.id} style={styles.gameCardContainer}>
+                <TouchableOpacity
+                  style={styles.gameCard}
+                  onPress={() => router.push(`/game-details?id=${game.id}`)}
+                >
+                  <Text style={styles.gameEmoji}>{getSportEmoji(game.sport)}</Text>
+                  <View style={styles.gameInfo}>
+                    <Text style={styles.gameSport}>{game.sport}</Text>
+                    <Text style={styles.gameDetails}>
+                      📍 {game.place} • 🕐 {formatDate(game.dt)}
+                    </Text>
+                  </View>
+                  <View style={styles.arrowCircle}>
+                    <Text style={styles.arrow}>→</Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.editIconButton}
+                  onPress={() => router.push(`/edit-game?id=${game.id}`)}
+                >
+                  <Text style={styles.editIcon}>✏️</Text>
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
+        </View>
+        {/* Joined Games */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>✨ Games I Joined</Text>
+          {joinedGames.length === 0 ? (
+            <View style={styles.emptySection}>
+              <Text style={styles.emptyText}>You haven't joined any games yet</Text>
+            </View>
+          ) : (
+            joinedGames.map((game) => (
+              <TouchableOpacity
+                key={game.id}
+                style={styles.gameCard}
+                onPress={() => router.push(`/game-details?id=${game.id}`)}
+              >
+                <Text style={styles.gameEmoji}>{getSportEmoji(game.sport)}</Text>
+                <View style={styles.gameInfo}>
+                  <Text style={styles.gameSport}>{game.sport}</Text>
+                  <Text style={styles.gameDetails}>
+                    📍 {game.place} • 🕐 {formatDate(game.dt)}
+                  </Text>
+                </View>
+                <View style={styles.arrowCircle}>
+                  <Text style={styles.arrow}>→</Text>
+                </View>
+              </TouchableOpacity>
+            ))
+          )}
+        </View>
+        {/* Logout Button */}
+        <TouchableOpacity
+          style={styles.logoutButton}
+          onPress={handleLogout}
+        >
+          <Text style={styles.logoutButtonText}>🚪 Logout</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
   );
 }
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f8f9fa',
   },
-  profileCard: {
+  notLoggedInGradient: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  notLoggedInEmoji: {
+    fontSize: 80,
+    marginBottom: 24,
+  },
+  notLoggedInTitle: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: 'white',
+    marginBottom: 12,
+  },
+  notLoggedInText: {
+    fontSize: 18,
+    color: 'rgba(255,255,255,0.9)',
+    textAlign: 'center',
+    marginBottom: 32,
+  },
+  loginButton: {
+    backgroundColor: 'white',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 25,
+  },
+  loginButtonText: {
+    color: '#667eea',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  header: {
+    paddingTop: 60,
+    paddingBottom: 40,
+    alignItems: 'center',
+  },
+  avatarContainer: {
+    marginBottom: 16,
+  },
+  avatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 4,
+    borderColor: 'white',
+  },
+  avatarText: {
+    fontSize: 40,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  displayName: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: 'white',
+    marginBottom: 4,
+  },
+  email: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.9)',
+  },
+  content: {
+    padding: 20,
+    marginTop: -20,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 24,
+  },
+  statCard: {
+    flex: 1,
     backgroundColor: 'white',
     padding: 20,
-    borderRadius: 12,
-    marginBottom: 20,
+    borderRadius: 16,
+    alignItems: 'center',
+    elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowRadius: 8,
   },
-  title: {
-    fontSize: 24,
+  statNumber: {
+    fontSize: 32,
     fontWeight: 'bold',
-    marginBottom: 20,
-    color: '#333',
+    color: '#667eea',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 14,
+    color: '#999',
     textAlign: 'center',
   },
-  label: {
+  section: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  emptySection: {
+    backgroundColor: 'white',
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+  },
+  gameCardContainer: {
+    position: 'relative',
+    marginBottom: 12,
+  },
+  gameCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    padding: 16,
+    borderRadius: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  gameEmoji: {
+    fontSize: 32,
+    marginRight: 16,
+  },
+  gameInfo: {
+    flex: 1,
+  },
+  gameSport: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  gameDetails: {
     fontSize: 14,
     color: '#666',
-    marginTop: 15,
-    marginBottom: 5,
   },
-  value: {
-    fontSize: 18,
-    color: '#333',
-    fontWeight: '500',
-  },
-  button: {
-    backgroundColor: '#007AFF',
-    padding: 16,
-    borderRadius: 8,
+  arrowCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  buttonText: {
-    color: 'white',
+  arrow: {
     fontSize: 16,
-    fontWeight: 'bold',
+    color: '#999',
+  },
+  editIconButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    padding: 8,
+  },
+  editIcon: {
+    fontSize: 20,
   },
   logoutButton: {
-    backgroundColor: '#FF3B30',
-    padding: 16,
-    borderRadius: 8,
+    backgroundColor: '#ff4d4d',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 25,
     alignItems: 'center',
+    marginTop: 20,
   },
   logoutButtonText: {
     color: 'white',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
   },
 });

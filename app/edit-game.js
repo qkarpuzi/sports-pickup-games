@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 
-export default function CreateGame() {
+export default function EditGame() {
   const [sport, setSport] = useState('');
   const [place, setPlace] = useState('');
   const [date, setDate] = useState('');
@@ -17,14 +17,52 @@ export default function CreateGame() {
   const [locationLoading, setLocationLoading] = useState(false);
   const { user } = useAuth();
   const router = useRouter();
+  const { id } = useLocalSearchParams();
 
-  // Quick sport selections
   const quickSports = ['⚽ Football', '🏀 Basketball', '🎾 Tennis', '🏐 Volleyball', '⚾ Baseball'];
+
+  useEffect(() => {
+    if (id) {
+      fetchGameDetails();
+    }
+  }, [id]);
+
+  async function fetchGameDetails() {
+    try {
+      const { data, error } = await supabase
+        .from('games')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error) throw error;
+
+      if (data.created_by !== user.id) {
+        Alert.alert('Error', 'You can only edit your own games');
+        router.back();
+        return;
+      }
+
+      // Parse date and time
+      const gameDate = new Date(data.dt);
+      const dateStr = gameDate.toISOString().split('T')[0];
+      const timeStr = gameDate.toTimeString().slice(0, 5);
+
+      setSport(data.sport);
+      setPlace(data.place);
+      setDate(dateStr);
+      setTime(timeStr);
+      setMaxPlayers(data.max_players?.toString() || '10');
+      setDescription(data.description || '');
+    } catch (error) {
+      Alert.alert('Error', error.message);
+      router.back();
+    }
+  }
 
   async function getCurrentLocation() {
     setLocationLoading(true);
     try {
-      // Request permission
       const { status } = await Location.requestForegroundPermissionsAsync();
       
       if (status !== 'granted') {
@@ -33,10 +71,7 @@ export default function CreateGame() {
         return;
       }
       
-      // Get current position
       const location = await Location.getCurrentPositionAsync({});
-      
-      // Reverse geocode to get address
       const address = await Location.reverseGeocodeAsync({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
@@ -63,10 +98,9 @@ export default function CreateGame() {
     }
   }
 
-  async function handleCreateGame() {
+  async function handleUpdateGame() {
     if (!user) {
-      Alert.alert('Error', 'You must be logged in to create a game');
-      router.replace('/login');
+      Alert.alert('Error', 'You must be logged in');
       return;
     }
 
@@ -76,27 +110,24 @@ export default function CreateGame() {
     }
 
     const dateTime = `${date}T${time}:00`;
-
     setLoading(true);
 
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('games')
-        .insert([
-          {
-            sport: sport.trim().replace(/^[^\s]+\s/, ''), // Remove emoji if present
-            place: place.trim(),
-            dt: dateTime,
-            max_players: parseInt(maxPlayers) || 10,
-            description: description.trim(),
-            created_by: user.id,
-          },
-        ])
-        .select();
+        .update({
+          sport: sport.trim().replace(/^[^\s]+\s/, ''),
+          place: place.trim(),
+          dt: dateTime,
+          max_players: parseInt(maxPlayers) || 10,
+          description: description.trim(),
+        })
+        .eq('id', id)
+        .eq('created_by', user.id);
 
       if (error) throw error;
 
-      Alert.alert('Success', 'Game created successfully!', [
+      Alert.alert('Success', 'Game updated successfully!', [
         { text: 'OK', onPress: () => router.back() }
       ]);
     } catch (error) {
@@ -104,6 +135,37 @@ export default function CreateGame() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleDeleteGame() {
+    Alert.alert(
+      'Delete Game',
+      'Are you sure you want to delete this game? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('games')
+                .delete()
+                .eq('id', id)
+                .eq('created_by', user.id);
+
+              if (error) throw error;
+
+              Alert.alert('Success', 'Game deleted successfully!', [
+                { text: 'OK', onPress: () => router.replace('/profile') }
+              ]);
+            } catch (error) {
+              Alert.alert('Error', error.message);
+            }
+          },
+        },
+      ]
+    );
   }
 
   return (
@@ -116,8 +178,8 @@ export default function CreateGame() {
           colors={['#667eea', '#764ba2']}
           style={styles.header}
         >
-          <Text style={styles.headerTitle}>Create New Game</Text>
-          <Text style={styles.headerSubtitle}>Fill in the details below</Text>
+          <Text style={styles.headerTitle}>Edit Game</Text>
+          <Text style={styles.headerSubtitle}>Update your game details</Text>
         </LinearGradient>
 
         <View style={styles.form}>
@@ -239,7 +301,7 @@ export default function CreateGame() {
 
           <TouchableOpacity 
             style={[styles.button, loading && styles.buttonDisabled]}
-            onPress={handleCreateGame}
+            onPress={handleUpdateGame}
             disabled={loading}
           >
             <LinearGradient
@@ -249,9 +311,16 @@ export default function CreateGame() {
               style={styles.buttonGradient}
             >
               <Text style={styles.buttonText}>
-                {loading ? 'Creating...' : '✨ Create Game'}
+                {loading ? 'Updating...' : '✅ Update Game'}
               </Text>
             </LinearGradient>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.deleteButton}
+            onPress={handleDeleteGame}
+          >
+            <Text style={styles.deleteButtonText}>🗑️ Delete Game</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -391,6 +460,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  deleteButton: {
+    backgroundColor: '#ff3b30',
+    paddingVertical: 18,
+    borderRadius: 15,
+    alignItems: 'center',
+    marginTop: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  deleteButtonText: {
     color: 'white',
     fontSize: 18,
     fontWeight: 'bold',
