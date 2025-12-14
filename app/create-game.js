@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
@@ -15,16 +15,32 @@ export default function CreateGame() {
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
+  const [categories, setCategories] = useState([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const { user } = useAuth();
   const router = useRouter();
 
-  // Quick sport selections
-  const quickSports = ['⚽ Football', '🏀 Basketball', '🎾 Tennis', '🏐 Volleyball', '⚾ Baseball'];
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  async function fetchCategories() {
+    try {
+      const { data, error } = await supabase
+        .from('categories')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      setCategories(data || []);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+    }
+  }
 
   async function getCurrentLocation() {
     setLocationLoading(true);
     try {
-      // Request permission
       const { status } = await Location.requestForegroundPermissionsAsync();
       
       if (status !== 'granted') {
@@ -33,10 +49,7 @@ export default function CreateGame() {
         return;
       }
       
-      // Get current position
       const location = await Location.getCurrentPositionAsync({});
-      
-      // Reverse geocode to get address
       const address = await Location.reverseGeocodeAsync({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
@@ -75,8 +88,12 @@ export default function CreateGame() {
       return;
     }
 
-    const dateTime = `${date}T${time}:00`;
+    if (!selectedCategoryId) {
+      Alert.alert('Error', 'Please select a category');
+      return;
+    }
 
+    const dateTime = `${date}T${time}:00`;
     setLoading(true);
 
     try {
@@ -84,12 +101,13 @@ export default function CreateGame() {
         .from('games')
         .insert([
           {
-            sport: sport.trim().replace(/^[^\s]+\s/, ''), // Remove emoji if present
+            sport: sport.trim(),
             place: place.trim(),
             dt: dateTime,
             max_players: parseInt(maxPlayers) || 10,
             description: description.trim(),
             created_by: user.id,
+            category_id: selectedCategoryId,
           },
         ])
         .select();
@@ -122,31 +140,38 @@ export default function CreateGame() {
 
         <View style={styles.form}>
           <View style={styles.section}>
-            <Text style={styles.label}>Sport *</Text>
-            <View style={styles.quickSelectContainer}>
-              {quickSports.map((quickSport) => (
+            <Text style={styles.label}>Category *</Text>
+            <View style={styles.categoriesContainer}>
+              {categories.map((category) => (
                 <TouchableOpacity
-                  key={quickSport}
+                  key={category.id}
                   style={[
-                    styles.quickSelectButton,
-                    sport === quickSport.split(' ')[1] && styles.quickSelectButtonActive
+                    styles.categoryButton,
+                    selectedCategoryId === category.id && styles.categoryButtonActive
                   ]}
-                  onPress={() => setSport(quickSport.split(' ')[1])}
+                  onPress={() => {
+                    setSelectedCategoryId(category.id);
+                    setSport(category.name);
+                  }}
                 >
                   <Text style={[
-                    styles.quickSelectText,
-                    sport === quickSport.split(' ')[1] && styles.quickSelectTextActive
+                    styles.categoryButtonText,
+                    selectedCategoryId === category.id && styles.categoryButtonTextActive
                   ]}>
-                    {quickSport}
+                    {category.emoji} {category.name}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.label}>Sport Name *</Text>
             <View style={styles.inputContainer}>
               <Text style={styles.inputIcon}>⚽</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Or type custom sport"
+                placeholder="Sport name"
                 placeholderTextColor="#999"
                 value={sport}
                 onChangeText={setSport}
@@ -295,13 +320,12 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 12,
   },
-  quickSelectContainer: {
+  categoriesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 12,
     gap: 8,
   },
-  quickSelectButton: {
+  categoryButton: {
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
@@ -309,16 +333,16 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#e0e0e0',
   },
-  quickSelectButtonActive: {
+  categoryButtonActive: {
     backgroundColor: '#667eea',
     borderColor: '#667eea',
   },
-  quickSelectText: {
+  categoryButtonText: {
     fontSize: 14,
     color: '#666',
     fontWeight: '600',
   },
-  quickSelectTextActive: {
+  categoryButtonTextActive: {
     color: 'white',
   },
   inputContainer: {

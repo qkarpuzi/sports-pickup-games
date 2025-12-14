@@ -15,17 +15,32 @@ export default function EditGame() {
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
+  const [categories, setCategories] = useState([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const { user } = useAuth();
   const router = useRouter();
   const { id } = useLocalSearchParams();
 
-  const quickSports = ['⚽ Football', '🏀 Basketball', '🎾 Tennis', '🏐 Volleyball', '⚾ Baseball'];
-
   useEffect(() => {
+    fetchCategories();
     if (id) {
       fetchGameDetails();
     }
   }, [id]);
+
+  async function fetchCategories() {
+    try {
+      const { data, error } = await supabase
+        .from('categories')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      setCategories(data || []);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+    }
+  }
 
   async function fetchGameDetails() {
     try {
@@ -43,7 +58,6 @@ export default function EditGame() {
         return;
       }
 
-      // Parse date and time
       const gameDate = new Date(data.dt);
       const dateStr = gameDate.toISOString().split('T')[0];
       const timeStr = gameDate.toTimeString().slice(0, 5);
@@ -54,6 +68,7 @@ export default function EditGame() {
       setTime(timeStr);
       setMaxPlayers(data.max_players?.toString() || '10');
       setDescription(data.description || '');
+      setSelectedCategoryId(data.category_id);
     } catch (error) {
       Alert.alert('Error', error.message);
       router.back();
@@ -109,6 +124,11 @@ export default function EditGame() {
       return;
     }
 
+    if (!selectedCategoryId) {
+      Alert.alert('Error', 'Please select a category');
+      return;
+    }
+
     const dateTime = `${date}T${time}:00`;
     setLoading(true);
 
@@ -116,11 +136,12 @@ export default function EditGame() {
       const { error } = await supabase
         .from('games')
         .update({
-          sport: sport.trim().replace(/^[^\s]+\s/, ''),
+          sport: sport.trim(),
           place: place.trim(),
           dt: dateTime,
           max_players: parseInt(maxPlayers) || 10,
           description: description.trim(),
+          category_id: selectedCategoryId,
         })
         .eq('id', id)
         .eq('created_by', user.id);
@@ -184,31 +205,38 @@ export default function EditGame() {
 
         <View style={styles.form}>
           <View style={styles.section}>
-            <Text style={styles.label}>Sport *</Text>
-            <View style={styles.quickSelectContainer}>
-              {quickSports.map((quickSport) => (
+            <Text style={styles.label}>Category *</Text>
+            <View style={styles.categoriesContainer}>
+              {categories.map((category) => (
                 <TouchableOpacity
-                  key={quickSport}
+                  key={category.id}
                   style={[
-                    styles.quickSelectButton,
-                    sport === quickSport.split(' ')[1] && styles.quickSelectButtonActive
+                    styles.categoryButton,
+                    selectedCategoryId === category.id && styles.categoryButtonActive
                   ]}
-                  onPress={() => setSport(quickSport.split(' ')[1])}
+                  onPress={() => {
+                    setSelectedCategoryId(category.id);
+                    setSport(category.name);
+                  }}
                 >
                   <Text style={[
-                    styles.quickSelectText,
-                    sport === quickSport.split(' ')[1] && styles.quickSelectTextActive
+                    styles.categoryButtonText,
+                    selectedCategoryId === category.id && styles.categoryButtonTextActive
                   ]}>
-                    {quickSport}
+                    {category.emoji} {category.name}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.label}>Sport Name *</Text>
             <View style={styles.inputContainer}>
               <Text style={styles.inputIcon}>⚽</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Or type custom sport"
+                placeholder="Sport name"
                 placeholderTextColor="#999"
                 value={sport}
                 onChangeText={setSport}
@@ -364,13 +392,12 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 12,
   },
-  quickSelectContainer: {
+  categoriesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 12,
     gap: 8,
   },
-  quickSelectButton: {
+  categoryButton: {
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
@@ -378,16 +405,16 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#e0e0e0',
   },
-  quickSelectButtonActive: {
+  categoryButtonActive: {
     backgroundColor: '#667eea',
     borderColor: '#667eea',
   },
-  quickSelectText: {
+  categoryButtonText: {
     fontSize: 14,
     color: '#666',
     fontWeight: '600',
   },
-  quickSelectTextActive: {
+  categoryButtonTextActive: {
     color: 'white',
   },
   inputContainer: {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, Alert } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, Alert, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -9,6 +9,8 @@ import * as Location from 'expo-location';
 export default function Home() {
   const [games, setGames] = useState([]);
   const [allGames, setAllGames] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showNearby, setShowNearby] = useState(false);
@@ -18,6 +20,7 @@ export default function Home() {
 
   useEffect(() => {
     fetchGames();
+    fetchCategories();
     getUserLocation();
   }, []);
 
@@ -40,7 +43,7 @@ export default function Home() {
     try {
       const { data, error } = await supabase
         .from('games')
-        .select('*')
+        .select('*, categories(name, emoji)')
         .order('dt', { ascending: true });
 
       if (error) throw error;
@@ -54,9 +57,24 @@ export default function Home() {
     }
   }
 
+  async function fetchCategories() {
+    try {
+      const { data, error } = await supabase
+        .from('categories')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      setCategories(data || []);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+    }
+  }
+
   function onRefresh() {
     setRefreshing(true);
     fetchGames();
+    fetchCategories();
   }
 
   function handleCreateGame() {
@@ -66,6 +84,40 @@ export default function Home() {
     }
     router.push('/create-game');
   }
+
+function filterByCategory(categoryId) {
+  if (categoryId === selectedCategory) {
+    // Toggle off
+    setSelectedCategory(null);
+    setGames(allGames);
+  } else {
+    // Filter by category ID OR by matching sport name
+    setSelectedCategory(categoryId);
+    
+    // Find the selected category to get its name
+    const selectedCat = categories.find(cat => cat.id === categoryId);
+    
+    const filtered = allGames.filter(game => {
+      // Match by category_id (for new games)
+      if (game.category_id === categoryId) return true;
+      
+      // Match by sport name (for old games without category_id)
+      if (selectedCat && game.sport) {
+        const sportLower = game.sport.toLowerCase();
+        const catLower = selectedCat.name.toLowerCase();
+        return sportLower.includes(catLower) || catLower.includes(sportLower);
+      }
+      
+      return false;
+    });
+    
+    setGames(filtered);
+    setShowNearby(false);
+    
+    console.log('Selected category:', selectedCat?.name);
+    console.log('Filtered games:', filtered.length);
+  }
+}
 
   async function toggleNearbyFilter() {
     if (!showNearby) {
@@ -79,11 +131,12 @@ export default function Home() {
         }
       }
 
-      // Filter games within 50km radius
+      // Filter games within 10km radius
       const nearbyGames = await filterNearbyGames(allGames);
       setGames(nearbyGames);
       setShowNearby(true);
-      Alert.alert('Nearby Games', `Showing ${nearbyGames.length} games near you`);
+      setSelectedCategory(null); // Turn off category filter
+      Alert.alert('Nearby Games', `Showing ${nearbyGames.length} games near you (within 10km)`);
     } else {
       // Turn OFF nearby filter
       setGames(allGames);
@@ -109,8 +162,8 @@ export default function Home() {
             geocoded[0].longitude
           );
 
-          // Within 50km
-          if (distance <= 50) {
+          // Within 10km
+          if (distance <= 10) {
             nearbyGames.push(game);
           }
         }
@@ -208,16 +261,43 @@ export default function Home() {
         </TouchableOpacity>
       </View>
 
-      {/* Nearby Filter Button */}
-      <View style={styles.filterContainer}>
-        <TouchableOpacity 
-          style={[styles.filterButton, showNearby && styles.filterButtonActive]}
-          onPress={toggleNearbyFilter}
+      {/* Category Pills */}
+      <View style={styles.categoriesContainer}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoriesScrollContent}
         >
-          <Text style={[styles.filterButtonText, showNearby && styles.filterButtonTextActive]}>
-            {showNearby ? '✓ ' : ''}📍 Near Me
-          </Text>
-        </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.categoryPill, showNearby && styles.categoryPillActive]}
+            onPress={toggleNearbyFilter}
+          >
+            <Text style={[styles.categoryPillText, showNearby && styles.categoryPillTextActive]}>
+              📍 Near Me
+            </Text>
+          </TouchableOpacity>
+
+          {categories.map((category) => (
+            <TouchableOpacity
+              key={category.id}
+              style={[
+                styles.categoryPill,
+                selectedCategory === category.id && styles.categoryPillActive
+              ]}
+              onPress={() => filterByCategory(category.id)}
+            >
+              <Text style={[
+                styles.categoryPillText,
+                selectedCategory === category.id && styles.categoryPillTextActive
+              ]}>
+                {category.emoji} {category.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      <View style={styles.gamesCountContainer}>
         <Text style={styles.gamesCount}>
           {games.length} {games.length === 1 ? 'game' : 'games'}
         </Text>
@@ -232,15 +312,19 @@ export default function Home() {
         <View style={styles.centerContent}>
           <Text style={styles.emptyIcon}>🎮</Text>
           <Text style={styles.emptyTitle}>
-            {showNearby ? 'No games nearby' : 'No games yet'}
+            {showNearby ? 'No games nearby' : selectedCategory ? 'No games in this category' : 'No games yet'}
           </Text>
           <Text style={styles.emptyText}>
-            {showNearby ? 'Try turning off the location filter' : 'Be the first to create one!'}
+            {showNearby || selectedCategory ? 'Try a different filter' : 'Be the first to create one!'}
           </Text>
-          {showNearby && (
+          {(showNearby || selectedCategory) && (
             <TouchableOpacity 
               style={styles.emptyButton}
-              onPress={() => toggleNearbyFilter()}
+              onPress={() => {
+                setShowNearby(false);
+                setSelectedCategory(null);
+                setGames(allGames);
+              }}
             >
               <Text style={styles.emptyButtonText}>Show All Games</Text>
             </TouchableOpacity>
@@ -261,11 +345,18 @@ export default function Home() {
               activeOpacity={0.7}
             >
               <View style={styles.gameCardHeader}>
-                <Text style={styles.sportEmoji}>{getSportEmoji(item.sport)}</Text>
+                <Text style={styles.sportEmoji}>
+                  {item.categories?.emoji || getSportEmoji(item.sport)}
+                </Text>
                 <View style={styles.gameCardHeaderText}>
                   <Text style={styles.sportName}>{item.sport}</Text>
                   <Text style={styles.dateText}>{formatDate(item.dt)}</Text>
                 </View>
+                {item.categories && (
+                  <View style={styles.categoryBadge}>
+                    <Text style={styles.categoryBadgeText}>{item.categories.name}</Text>
+                  </View>
+                )}
               </View>
               
               <View style={styles.gameCardBody}>
@@ -368,14 +459,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
-  filterContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    marginBottom: 16,
+  categoriesContainer: {
+    marginBottom: 12,
   },
-  filterButton: {
+  categoriesScrollContent: {
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  categoryPill: {
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 20,
@@ -383,17 +474,21 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#e0e0e0',
   },
-  filterButtonActive: {
+  categoryPillActive: {
     backgroundColor: '#667eea',
     borderColor: '#667eea',
   },
-  filterButtonText: {
+  categoryPillText: {
     fontSize: 14,
     color: '#666',
     fontWeight: '600',
   },
-  filterButtonTextActive: {
+  categoryPillTextActive: {
     color: 'white',
+  },
+  gamesCountContainer: {
+    paddingHorizontal: 20,
+    marginBottom: 16,
   },
   gamesCount: {
     fontSize: 14,
@@ -473,6 +568,17 @@ const styles = StyleSheet.create({
   dateText: {
     fontSize: 14,
     color: '#667eea',
+    fontWeight: '600',
+  },
+  categoryBadge: {
+    backgroundColor: '#667eea',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  categoryBadgeText: {
+    color: 'white',
+    fontSize: 12,
     fontWeight: '600',
   },
   gameCardBody: {
