@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, RefreshControl, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
+
 export default function Profile() {
   const { user, signOut } = useAuth();
   const [profile, setProfile] = useState(null);
@@ -11,7 +13,9 @@ export default function Profile() {
   const [joinedGames, setJoinedGames] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
   const router = useRouter();
+
   useEffect(() => {
     if (user) {
       fetchProfile();
@@ -19,6 +23,7 @@ export default function Profile() {
       fetchJoinedGames();
     }
   }, [user]);
+
   async function fetchProfile() {
     try {
       const { data, error } = await supabase
@@ -26,6 +31,7 @@ export default function Profile() {
         .select('*')
         .eq('id', user.id)
         .single();
+
       if (error) throw error;
       setProfile(data);
     } catch (error) {
@@ -34,6 +40,7 @@ export default function Profile() {
       setLoading(false);
     }
   }
+
   async function fetchMyGames() {
     try {
       const { data, error } = await supabase
@@ -41,27 +48,32 @@ export default function Profile() {
         .select('*')
         .eq('created_by', user.id)
         .order('dt', { ascending: true });
+
       if (error) throw error;
       setMyGames(data || []);
     } catch (error) {
       console.error('Error fetching games:', error);
     }
   }
+
   async function fetchJoinedGames() {
     try {
       const { data: participantData, error } = await supabase
         .from('game_participants')
         .select('game_id')
         .eq('user_id', user.id);
+
       if (error) throw error;
+
       if (participantData && participantData.length > 0) {
         const gameIds = participantData.map(p => p.game_id);
-       
+        
         const { data: gamesData, error: gamesError } = await supabase
           .from('games')
           .select('*')
           .in('id', gameIds)
           .order('dt', { ascending: true });
+
         if (gamesError) throw gamesError;
         setJoinedGames(gamesData || []);
       }
@@ -69,6 +81,7 @@ export default function Profile() {
       console.error('Error fetching joined games:', error);
     }
   }
+
   function onRefresh() {
     setRefreshing(true);
     fetchProfile();
@@ -76,6 +89,78 @@ export default function Profile() {
     fetchJoinedGames();
     setRefreshing(false);
   }
+
+  async function pickImage() {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'We need permission to access your photos');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        await uploadImage(result.assets[0]);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to pick image: ' + error.message);
+    }
+  }
+
+  async function uploadImage(asset) {
+  setUploading(true);
+  try {
+    const fileName = `${user.id}-${Date.now()}.jpg`;
+
+    // Convert base64 to Uint8Array
+    const base64Data = asset.base64;
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('profile-pictures')
+      .upload(fileName, bytes, {
+        contentType: 'image/jpeg',
+        upsert: true,
+      });
+
+    if (uploadError) throw uploadError;
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('profile-pictures')
+      .getPublicUrl(fileName);
+
+    // Update user profile with image URL
+    const { error: updateError } = await supabase
+      .from('user_profiles')
+      .update({ profile_picture_url: publicUrl })
+      .eq('id', user.id);
+
+    if (updateError) throw updateError;
+
+    Alert.alert('Success', 'Profile picture updated!');
+    fetchProfile();
+  } catch (error) {
+    console.error('Upload error:', error);
+    Alert.alert('Error', 'Failed to upload image: ' + error.message);
+  } finally {
+    setUploading(false);
+  }
+}
+
   async function handleLogout() {
     Alert.alert(
       'Logout',
@@ -97,10 +182,12 @@ export default function Profile() {
       ]
     );
   }
+
   function formatDate(dateString) {
     const date = new Date(dateString);
     return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
+
   function getSportEmoji(sport) {
     const sportLower = sport.toLowerCase();
     if (sportLower.includes('football') || sportLower.includes('soccer')) return '⚽';
@@ -110,6 +197,7 @@ export default function Profile() {
     if (sportLower.includes('baseball')) return '⚾';
     return '🏃';
   }
+
   if (!user) {
     return (
       <View style={styles.container}>
@@ -120,8 +208,8 @@ export default function Profile() {
           <Text style={styles.notLoggedInEmoji}>🔐</Text>
           <Text style={styles.notLoggedInTitle}>Please Login</Text>
           <Text style={styles.notLoggedInText}>Login to view your profile and games</Text>
-         
-          <TouchableOpacity
+          
+          <TouchableOpacity 
             style={styles.loginButton}
             onPress={() => router.push('/login')}
           >
@@ -131,8 +219,9 @@ export default function Profile() {
       </View>
     );
   }
+
   return (
-    <ScrollView
+    <ScrollView 
       style={styles.container}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -142,16 +231,32 @@ export default function Profile() {
         colors={['#667eea', '#764ba2']}
         style={styles.header}
       >
-        <View style={styles.avatarContainer}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {profile?.display_name?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || '?'}
-            </Text>
+        <TouchableOpacity 
+          style={styles.avatarContainer}
+          onPress={pickImage}
+          disabled={uploading}
+        >
+          {profile?.profile_picture_url ? (
+            <Image 
+              source={{ uri: profile.profile_picture_url }} 
+              style={styles.avatarImage}
+            />
+          ) : (
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>
+                {profile?.display_name?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || '?'}
+              </Text>
+            </View>
+          )}
+          <View style={styles.cameraIcon}>
+            <Text style={styles.cameraIconText}>📷</Text>
           </View>
-        </View>
+        </TouchableOpacity>
+        {uploading && <Text style={styles.uploadingText}>Uploading...</Text>}
         <Text style={styles.displayName}>{profile?.display_name || 'User'}</Text>
         <Text style={styles.email}>{user.email}</Text>
       </LinearGradient>
+
       <View style={styles.content}>
         {/* Stats Cards */}
         <View style={styles.statsContainer}>
@@ -164,6 +269,7 @@ export default function Profile() {
             <Text style={styles.statLabel}>Games Joined</Text>
           </View>
         </View>
+
         {/* My Created Games */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>🎮 My Created Games</Text>
@@ -189,7 +295,7 @@ export default function Profile() {
                     <Text style={styles.arrow}>→</Text>
                   </View>
                 </TouchableOpacity>
-                <TouchableOpacity
+                <TouchableOpacity 
                   style={styles.editIconButton}
                   onPress={() => router.push(`/edit-game?id=${game.id}`)}
                 >
@@ -199,6 +305,7 @@ export default function Profile() {
             ))
           )}
         </View>
+
         {/* Joined Games */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>✨ Games I Joined</Text>
@@ -227,8 +334,9 @@ export default function Profile() {
             ))
           )}
         </View>
+
         {/* Logout Button */}
-        <TouchableOpacity
+        <TouchableOpacity 
           style={styles.logoutButton}
           onPress={handleLogout}
         >
@@ -238,6 +346,7 @@ export default function Profile() {
     </ScrollView>
   );
 }
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -282,6 +391,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   avatarContainer: {
+    position: 'relative',
     marginBottom: 16,
   },
   avatar: {
@@ -294,10 +404,38 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     borderColor: 'white',
   },
+  avatarImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 4,
+    borderColor: 'white',
+  },
   avatarText: {
     fontSize: 40,
     fontWeight: 'bold',
     color: 'white',
+  },
+  cameraIcon: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#667eea',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: 'white',
+  },
+  cameraIconText: {
+    fontSize: 16,
+  },
+  uploadingText: {
+    color: 'white',
+    fontSize: 14,
+    marginTop: 8,
   },
   displayName: {
     fontSize: 28,
@@ -388,39 +526,56 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
+    marginBottom: 4,
   },
   gameDetails: {
     fontSize: 14,
     color: '#666',
   },
   arrowCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#f0f0f0',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#667eea',
     justifyContent: 'center',
     alignItems: 'center',
   },
   arrow: {
     fontSize: 16,
-    color: '#999',
+    color: 'white',
+    fontWeight: 'bold',
   },
   editIconButton: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    padding: 8,
+    top: 12,
+    right: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#667eea',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
   },
   editIcon: {
-    fontSize: 20,
+    fontSize: 18,
   },
   logoutButton: {
-    backgroundColor: '#ff4d4d',
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 25,
+    backgroundColor: '#ff3b30',
+    paddingVertical: 18,
+    borderRadius: 15,
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 8,
+    marginBottom: 40,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
   },
   logoutButtonText: {
     color: 'white',
