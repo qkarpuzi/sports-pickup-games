@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 
 export default function Register() {
   const [email, setEmail] = useState('');
@@ -15,132 +16,198 @@ export default function Register() {
 
   async function handleRegister() {
     if (!email.trim() || !password.trim() || !displayName.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert('Required', 'Please fill in all fields');
       return;
     }
 
     if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
+      Alert.alert('Passwords Mismatch', 'Please make sure your passwords match');
       return;
     }
 
     if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+      Alert.alert('Weak Password', 'Password must be at least 6 characters long');
       return;
     }
 
     setLoading(true);
     try {
       await signUp(email, password, displayName);
-      Alert.alert('Success', 'Account created successfully!', [
-        { text: 'OK', onPress: () => router.replace('/login') }
+      Alert.alert('Welcome! 🎉', 'Your account has been created successfully!', [
+        { 
+          text: 'Continue', 
+          onPress: () => router.replace('/login') 
+        }
       ]);
     } catch (error) {
-      Alert.alert('Error', error.message);
+      Alert.alert('Registration Failed', error.message || 'Please try again');
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
+    <View style={styles.container}>
       <LinearGradient
         colors={['#667eea', '#764ba2']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
         style={styles.gradient}
       >
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => router.back()}
         >
-          <View style={styles.content}>
-            <View style={styles.headerSection}>
-              <Text style={styles.emoji}>🎮</Text>
-              <Text style={styles.title}>Join Us!</Text>
-              <Text style={styles.subtitle}>Create your account</Text>
-            </View>
+          <Ionicons name="arrow-back" size={24} color="white" />
+        </TouchableOpacity>
 
-            <View style={styles.formSection}>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>👤</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Display Name"
-                  placeholderTextColor="#999"
-                  value={displayName}
-                  onChangeText={setDisplayName}
-                />
+        <KeyboardAvoidingView 
+          style={styles.keyboardView}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={60}
+        >
+          <ScrollView 
+            style={styles.scrollView}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.content}>
+              {/* Header */}
+              <View style={styles.headerSection}>
+                <View style={styles.headerIconContainer}>
+                  <Ionicons name="person-add" size={48} color="white" />
+                </View>
+                <Text style={styles.title}>Create Account</Text>
+                <Text style={styles.subtitle}>Join our sports community</Text>
               </View>
 
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>📧</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Email"
-                  placeholderTextColor="#999"
-                  value={email}
-                  onChangeText={setEmail}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                />
-              </View>
+              {/* Form */}
+              <View style={styles.formContainer}>
+                {/* Display Name */}
+                <View style={styles.inputSection}>
+                  <Text style={styles.inputLabel}>Display Name</Text>
+                  <View style={styles.inputCard}>
+                    <View style={styles.inputIconContainer}>
+                      <Ionicons name="person-outline" size={20} color="#667eea" />
+                    </View>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="What should we call you?"
+                      placeholderTextColor="#999"
+                      value={displayName}
+                      onChangeText={setDisplayName}
+                      autoCapitalize="words"
+                    />
+                  </View>
+                </View>
 
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>🔒</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Password (min 6 characters)"
-                  placeholderTextColor="#999"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                />
-              </View>
+                {/* Email */}
+                <View style={styles.inputSection}>
+                  <Text style={styles.inputLabel}>Email Address</Text>
+                  <View style={styles.inputCard}>
+                    <View style={styles.inputIconContainer}>
+                      <Ionicons name="mail-outline" size={20} color="#667eea" />
+                    </View>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Enter your email"
+                      placeholderTextColor="#999"
+                      value={email}
+                      onChangeText={setEmail}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      autoComplete="email"
+                    />
+                  </View>
+                </View>
 
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>✅</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Confirm Password"
-                  placeholderTextColor="#999"
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry
-                />
-              </View>
+                {/* Password */}
+                <View style={styles.inputSection}>
+                  <Text style={styles.inputLabel}>Password</Text>
+                  <View style={styles.inputCard}>
+                    <View style={styles.inputIconContainer}>
+                      <Ionicons name="lock-closed-outline" size={20} color="#667eea" />
+                    </View>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Minimum 6 characters"
+                      placeholderTextColor="#999"
+                      value={password}
+                      onChangeText={setPassword}
+                      secureTextEntry
+                      autoComplete="new-password"
+                    />
+                  </View>
+                  <Text style={styles.hintText}>Must be at least 6 characters</Text>
+                </View>
 
-              <TouchableOpacity 
-                style={[styles.button, loading && styles.buttonDisabled]}
-                onPress={handleRegister}
-                disabled={loading}
-              >
-                <LinearGradient
-                  colors={['#f093fb', '#f5576c']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.buttonGradient}
-                >
-                  <Text style={styles.buttonText}>
-                    {loading ? 'Creating Account...' : 'Create Account'}
+                {/* Confirm Password */}
+                <View style={styles.inputSection}>
+                  <Text style={styles.inputLabel}>Confirm Password</Text>
+                  <View style={styles.inputCard}>
+                    <View style={styles.inputIconContainer}>
+                      <Ionicons name="checkmark-circle-outline" size={20} color="#667eea" />
+                    </View>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Re-enter your password"
+                      placeholderTextColor="#999"
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      secureTextEntry
+                      autoComplete="new-password"
+                    />
+                  </View>
+                  <Text style={styles.hintText}>
+                    {password && confirmPassword && password !== confirmPassword 
+                      ? '⚠️ Passwords do not match' 
+                      : password && confirmPassword && password === confirmPassword 
+                      ? '✅ Passwords match' 
+                      : ''}
                   </Text>
-                </LinearGradient>
-              </TouchableOpacity>
+                </View>
 
-              <TouchableOpacity 
-                style={styles.linkButton}
-                onPress={() => router.back()}
-              >
-                <Text style={styles.linkText}>
-                  Already have an account? <Text style={styles.linkTextBold}>Login</Text>
-                </Text>
-              </TouchableOpacity>
+                {/* Submit Button */}
+                <TouchableOpacity 
+                  style={[styles.registerButton, loading && styles.registerButtonDisabled]}
+                  onPress={handleRegister}
+                  disabled={loading}
+                >
+                  <LinearGradient
+                    colors={['#667eea', '#764ba2']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.registerGradient}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="white" />
+                    ) : (
+                      <>
+                        <Ionicons name="person-add" size={22} color="white" />
+                        <Text style={styles.registerButtonText}>Create Account</Text>
+                      </>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+
+                {/* Login Link */}
+                <View style={styles.loginSection}>
+                  <Text style={styles.loginText}>Already have an account?</Text>
+                  <TouchableOpacity 
+                    style={styles.loginButton}
+                    onPress={() => router.push('/login')}
+                    disabled={loading}
+                  >
+                    <Text style={styles.loginButtonText}>Sign In</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
-          </View>
-        </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </LinearGradient>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -151,50 +218,85 @@ const styles = StyleSheet.create({
   gradient: {
     flex: 1,
   },
+  backButton: {
+    position: 'absolute',
+    top: 60,
+    left: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
   },
   content: {
-    paddingHorizontal: 30,
+    paddingHorizontal: 24,
     paddingVertical: 40,
   },
   headerSection: {
     alignItems: 'center',
     marginBottom: 40,
   },
-  emoji: {
-    fontSize: 64,
-    marginBottom: 16,
+  headerIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
   },
   title: {
-    fontSize: 36,
-    fontWeight: 'bold',
+    fontSize: 32,
+    fontWeight: '700',
     color: 'white',
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 18,
+    fontSize: 16,
     color: 'rgba(255,255,255,0.9)',
+    fontWeight: '500',
   },
-  formSection: {
-    width: '100%',
+  formContainer: {
+    backgroundColor: 'white',
+    borderRadius: 24,
+    padding: 24,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
   },
-  inputContainer: {
+  inputSection: {
+    marginBottom: 24,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  inputCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'white',
-    borderRadius: 15,
-    marginBottom: 16,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
     paddingHorizontal: 16,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#e8ecf4',
   },
-  inputIcon: {
-    fontSize: 20,
+  inputIconContainer: {
     marginRight: 12,
   },
   input: {
@@ -202,39 +304,60 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     fontSize: 16,
     color: '#333',
+    fontWeight: '500',
   },
-  button: {
-    borderRadius: 15,
+  hintText: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 6,
+    marginLeft: 4,
+  },
+  registerButton: {
+    borderRadius: 16,
     overflow: 'hidden',
-    marginTop: 10,
-    elevation: 5,
-    shadowColor: '#000',
+    marginTop: 8,
+    elevation: 4,
+    shadowColor: '#667eea',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
   },
-  buttonDisabled: {
-    opacity: 0.6,
+  registerButtonDisabled: {
+    opacity: 0.7,
   },
-  buttonGradient: {
-    paddingVertical: 18,
+  registerGradient: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    gap: 12,
   },
-  buttonText: {
+  registerButtonText: {
     color: 'white',
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
-  linkButton: {
-    marginTop: 24,
+  loginSection: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 32,
+    paddingTop: 24,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
   },
-  linkText: {
-    color: 'white',
-    fontSize: 16,
+  loginText: {
+    fontSize: 14,
+    color: '#666',
+    marginRight: 8,
   },
-  linkTextBold: {
-    fontWeight: 'bold',
-    textDecorationLine: 'underline',
+  loginButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  loginButtonText: {
+    fontSize: 14,
+    color: '#667eea',
+    fontWeight: '700',
   },
 });

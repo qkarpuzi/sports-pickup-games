@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, Alert, ScrollView } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useState, useEffect, useCallback } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, Alert, ScrollView, ActivityIndicator } from 'react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
+import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 
 export default function Home() {
   const [games, setGames] = useState([]);
@@ -18,8 +19,13 @@ export default function Home() {
   const { user } = useAuth();
   const router = useRouter();
 
+  useFocusEffect(
+    useCallback(() => {
+      fetchGames();
+    }, [])
+  );
+
   useEffect(() => {
-    fetchGames();
     fetchCategories();
     getUserLocation();
   }, []);
@@ -28,7 +34,9 @@ export default function Home() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
-        const location = await Location.getCurrentPositionAsync({});
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
         setUserLocation({
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
@@ -43,12 +51,18 @@ export default function Home() {
     try {
       const { data, error } = await supabase
         .from('games')
-        .select('*, categories(name, emoji)')
+        .select('*, categories(name, emoji), game_participants(count)')
         .order('dt', { ascending: true });
 
       if (error) throw error;
-      setAllGames(data || []);
-      setGames(data || []);
+      
+      const formattedData = (data || []).map(game => ({
+        ...game,
+        current_players: game.game_participants?.[0]?.count || 0,
+      }));
+      
+      setAllGames(formattedData);
+      setGames(formattedData);
     } catch (error) {
       console.error('Error fetching games:', error);
     } finally {
@@ -85,58 +99,58 @@ export default function Home() {
     router.push('/create-game');
   }
 
-function filterByCategory(categoryId) {
-  if (categoryId === selectedCategory) {
-    // Toggle off
-    setSelectedCategory(null);
-    setGames(allGames);
-  } else {
-    // Filter by category ID OR by matching sport name
-    setSelectedCategory(categoryId);
-    
-    // Find the selected category to get its name
-    const selectedCat = categories.find(cat => cat.id === categoryId);
-    
-    const filtered = allGames.filter(game => {
-      // Match by category_id (for new games)
-      if (game.category_id === categoryId) return true;
+  function filterByCategory(categoryId) {
+    if (categoryId === selectedCategory) {
+      // Toggle off
+      setSelectedCategory(null);
+      setGames(allGames);
+      setShowNearby(false);
+    } else {
+      // Filter by category ID OR by matching sport name
+      setSelectedCategory(categoryId);
+      setShowNearby(false);
       
-      // Match by sport name (for old games without category_id)
-      if (selectedCat && game.sport) {
-        const sportLower = game.sport.toLowerCase();
-        const catLower = selectedCat.name.toLowerCase();
-        return sportLower.includes(catLower) || catLower.includes(sportLower);
-      }
+      // Find the selected category to get its name
+      const selectedCat = categories.find(cat => cat.id === categoryId);
       
-      return false;
-    });
-    
-    setGames(filtered);
-    setShowNearby(false);
-    
-    console.log('Selected category:', selectedCat?.name);
-    console.log('Filtered games:', filtered.length);
+      const filtered = allGames.filter(game => {
+        // Match by category_id (for new games)
+        if (game.category_id === categoryId) return true;
+        
+        // Match by sport name (for old games without category_id)
+        if (selectedCat && game.sport) {
+          const sportLower = game.sport.toLowerCase();
+          const catLower = selectedCat.name.toLowerCase();
+          return sportLower.includes(catLower) || catLower.includes(sportLower);
+        }
+        
+        return false;
+      });
+      
+      setGames(filtered);
+    }
   }
-}
 
   async function toggleNearbyFilter() {
     if (!showNearby) {
       // Turn ON nearby filter
       if (!userLocation) {
-        Alert.alert('Location Required', 'Getting your location...');
+        Alert.alert('Location Required', 'Please enable location services to find nearby games.');
         await getUserLocation();
         if (!userLocation) {
-          Alert.alert('Error', 'Could not get your location. Please enable location services.');
+          Alert.alert('Permission Required', 'Location access is required to show nearby games.');
           return;
         }
       }
 
-      // Filter games within 10km radius
       const nearbyGames = await filterNearbyGames(allGames);
       setGames(nearbyGames);
       setShowNearby(true);
-      setSelectedCategory(null); // Turn off category filter
-      Alert.alert('Nearby Games', `Showing ${nearbyGames.length} games near you (within 10km)`);
+      setSelectedCategory(null);
+      
+      if (nearbyGames.length === 0) {
+        Alert.alert('No Nearby Games', 'No games found within 10km. Try expanding your search or create your own game!');
+      }
     } else {
       // Turn OFF nearby filter
       setGames(allGames);
@@ -151,7 +165,6 @@ function filterByCategory(categoryId) {
 
     for (const game of gamesToFilter) {
       try {
-        // Try to geocode the game location
         const geocoded = await Location.geocodeAsync(game.place);
         
         if (geocoded && geocoded.length > 0) {
@@ -162,7 +175,6 @@ function filterByCategory(categoryId) {
             geocoded[0].longitude
           );
 
-          // Within 10km
           if (distance <= 10) {
             nearbyGames.push(game);
           }
@@ -176,9 +188,8 @@ function filterByCategory(categoryId) {
     return nearbyGames;
   }
 
-  // Calculate distance between two coordinates (Haversine formula)
   function getDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371; // Radius of Earth in km
+    const R = 6371;
     const dLat = toRad(lat2 - lat1);
     const dLon = toRad(lon2 - lon1);
     const a =
@@ -198,12 +209,20 @@ function filterByCategory(categoryId) {
     const now = new Date();
     const diffTime = date - now;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const diffHours = Math.ceil(diffTime / (1000 * 60 * 60));
     
-    if (diffDays === 0) return 'Today at ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    if (diffDays === 1) return 'Tomorrow at ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    if (diffDays > 1 && diffDays < 7) return date.toLocaleDateString([], { weekday: 'long', hour: '2-digit', minute: '2-digit' });
+    if (diffHours < 0) return 'Already started';
+    if (diffHours === 0) return 'Starting soon';
+    if (diffHours < 24) return `In ${diffHours} ${diffHours === 1 ? 'hour' : 'hours'}`;
+    if (diffDays === 1) return 'Tomorrow';
+    if (diffDays <= 7) return date.toLocaleDateString([], { weekday: 'long' });
     
-    return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
+  function formatTime(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
   function getSportEmoji(sport) {
@@ -214,6 +233,92 @@ function filterByCategory(categoryId) {
     if (sportLower.includes('volleyball')) return '🏐';
     if (sportLower.includes('baseball')) return '⚾';
     return '🏃';
+  }
+
+  function GameCard({ item }) {
+    return (
+      <TouchableOpacity 
+        style={styles.gameCard}
+        onPress={() => router.push(`/game-details?id=${item.id}`)}
+        activeOpacity={0.9}
+      >
+        <View style={styles.gameCardContent}>
+          {/* Game Header */}
+          <View style={styles.gameHeader}>
+            <View style={styles.sportIconContainer}>
+              <Text style={styles.sportIcon}>
+                {item.categories?.emoji || getSportEmoji(item.sport)}
+              </Text>
+            </View>
+            
+            <View style={styles.gameInfo}>
+              <View style={styles.gameTitleRow}>
+                <Text style={styles.sportName} numberOfLines={1}>
+                  {item.sport}
+                </Text>
+                {item.categories && (
+                  <View style={styles.categoryTag}>
+                    <Text style={styles.categoryTagText}>{item.categories.name}</Text>
+                  </View>
+                )}
+              </View>
+              
+              <View style={styles.gameMeta}>
+                <View style={styles.metaItem}>
+                  <Ionicons name="time-outline" size={14} color="#666" />
+                  <Text style={styles.metaText}>{formatTime(item.dt)}</Text>
+                </View>
+                <View style={styles.metaDivider} />
+                <View style={styles.metaItem}>
+                  <Ionicons name="calendar-outline" size={14} color="#666" />
+                  <Text style={styles.metaText}>{formatDate(item.dt)}</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* Game Location */}
+          <View style={styles.locationContainer}>
+            <Ionicons name="location-outline" size={16} color="#667eea" />
+            <Text style={styles.locationText} numberOfLines={1}>
+              {item.place}
+            </Text>
+          </View>
+
+          {/* Game Description */}
+          {item.description && (
+            <Text style={styles.description} numberOfLines={2}>
+              {item.description}
+            </Text>
+          )}
+
+          {/* Game Footer */}
+          <View style={styles.gameFooter}>
+            <View style={styles.playersContainer}>
+              <View style={styles.playersInfo}>
+                <FontAwesome5 name="users" size={12} color="#666" />
+                <Text style={styles.playersText}>
+                  {item.current_players}/{item.max_players || 10}
+                </Text>
+              </View>
+              <View style={styles.playersProgressBar}>
+                <View 
+                  style={[
+                    styles.playersProgressFill,
+                    { width: `${(item.current_players / (item.max_players || 10)) * 100}%` }
+                  ]} 
+                />
+              </View>
+            </View>
+            
+            <View style={styles.viewButton}>
+              <Text style={styles.viewButtonText}>View</Text>
+              <Ionicons name="arrow-forward" size={16} color="#667eea" />
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
   }
 
   return (
@@ -227,18 +332,21 @@ function filterByCategory(categoryId) {
       >
         <View style={styles.headerContent}>
           <View>
-            <Text style={styles.headerTitle}>Pickup Games</Text>
+            <Text style={styles.headerTitle}>Game Finder</Text>
             <Text style={styles.headerSubtitle}>
-              {user ? `Welcome back, ${user.email?.split('@')[0]}!` : 'Find your next game'}
+              {user ? `Welcome back, ${user.email?.split('@')[0]}!` : 'Find & join games near you'}
             </Text>
           </View>
+          
           <TouchableOpacity 
             style={styles.profileButton}
             onPress={() => user ? router.push('/profile') : router.push('/login')}
           >
-            <Text style={styles.profileButtonText}>
-              {user ? '👤' : '🔐'}
-            </Text>
+            {user ? (
+              <Ionicons name="person-circle" size={28} color="white" />
+            ) : (
+              <Ionicons name="log-in" size={28} color="white" />
+            )}
           </TouchableOpacity>
         </View>
       </LinearGradient>
@@ -248,32 +356,67 @@ function filterByCategory(categoryId) {
         <TouchableOpacity 
           style={styles.createButton}
           onPress={handleCreateGame}
+          activeOpacity={0.9}
         >
           <LinearGradient
-            colors={['#f093fb', '#f5576c']}
+            colors={['#667eea', '#764ba2']}
             start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
+            end={{ x: 1, y: 1 }}
             style={styles.createButtonGradient}
           >
-            <Text style={styles.createButtonIcon}>+</Text>
-            <Text style={styles.createButtonText}>Create New Game</Text>
+            <View style={styles.createButtonContent}>
+              <View style={styles.createButtonIcon}>
+                <Ionicons name="add" size={24} color="white" />
+              </View>
+              <View>
+                <Text style={styles.createButtonTitle}>Create Game</Text>
+                <Text style={styles.createButtonSubtitle}>Host your own pickup game</Text>
+              </View>
+            </View>
           </LinearGradient>
         </TouchableOpacity>
       </View>
 
-      {/* Category Pills */}
-      <View style={styles.categoriesContainer}>
+      {/* Filters */}
+      <View style={styles.filterSection}>
+        <View style={styles.filterHeader}>
+          <Text style={styles.filterTitle}>Filters</Text>
+          {(showNearby || selectedCategory) && (
+            <TouchableOpacity 
+              style={styles.clearFilterButton}
+              onPress={() => {
+                setShowNearby(false);
+                setSelectedCategory(null);
+                setGames(allGames);
+              }}
+            >
+              <Text style={styles.clearFilterText}>Clear</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        
         <ScrollView 
           horizontal 
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoriesScrollContent}
+          contentContainerStyle={styles.filtersContainer}
         >
           <TouchableOpacity 
-            style={[styles.categoryPill, showNearby && styles.categoryPillActive]}
+            style={[
+              styles.filterPill,
+              showNearby && styles.filterPillActive
+            ]}
             onPress={toggleNearbyFilter}
           >
-            <Text style={[styles.categoryPillText, showNearby && styles.categoryPillTextActive]}>
-              📍 Near Me
+            <Ionicons 
+              name="location" 
+              size={16} 
+              color={showNearby ? 'white' : '#667eea'} 
+            />
+            <Text style={[
+              styles.filterPillText,
+              showNearby && styles.filterPillTextActive
+            ]}>
+              Nearby
             </Text>
           </TouchableOpacity>
 
@@ -281,112 +424,80 @@ function filterByCategory(categoryId) {
             <TouchableOpacity
               key={category.id}
               style={[
-                styles.categoryPill,
-                selectedCategory === category.id && styles.categoryPillActive
+                styles.filterPill,
+                selectedCategory === category.id && styles.filterPillActive
               ]}
               onPress={() => filterByCategory(category.id)}
             >
+              <Text style={styles.filterPillEmoji}>{category.emoji}</Text>
               <Text style={[
-                styles.categoryPillText,
-                selectedCategory === category.id && styles.categoryPillTextActive
+                styles.filterPillText,
+                selectedCategory === category.id && styles.filterPillTextActive
               ]}>
-                {category.emoji} {category.name}
+                {category.name}
               </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
-      <View style={styles.gamesCountContainer}>
-        <Text style={styles.gamesCount}>
-          {games.length} {games.length === 1 ? 'game' : 'games'}
-        </Text>
-      </View>
-
-      {/* Games List */}
-      {loading ? (
-        <View style={styles.centerContent}>
-          <Text style={styles.loadingText}>Loading games...</Text>
+      {/* Games Section */}
+      <View style={styles.gamesSection}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>
+            {showNearby ? 'Games Near You' : selectedCategory ? `${categories.find(c => c.id === selectedCategory)?.name} Games` : 'All Games'}
+          </Text>
+          <View style={styles.gamesCountBadge}>
+            <Text style={styles.gamesCountText}>{games.length}</Text>
+          </View>
         </View>
-      ) : games.length === 0 ? (
-        <View style={styles.centerContent}>
-          <Text style={styles.emptyIcon}>🎮</Text>
-          <Text style={styles.emptyTitle}>
-            {showNearby ? 'No games nearby' : selectedCategory ? 'No games in this category' : 'No games yet'}
-          </Text>
-          <Text style={styles.emptyText}>
-            {showNearby || selectedCategory ? 'Try a different filter' : 'Be the first to create one!'}
-          </Text>
-          {(showNearby || selectedCategory) && (
+
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#667eea" />
+            <Text style={styles.loadingText}>Loading games...</Text>
+          </View>
+        ) : games.length === 0 ? (
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIconContainer}>
+              <Ionicons name={showNearby ? "location-off" : "sad-outline"} size={64} color="#ccc" />
+            </View>
+            <Text style={styles.emptyTitle}>
+              {showNearby ? 'No Games Nearby' : selectedCategory ? 'No Games in Category' : 'No Games Yet'}
+            </Text>
+            <Text style={styles.emptyDescription}>
+              {showNearby 
+                ? 'Try expanding your search radius or create a game in your area'
+                : selectedCategory
+                ? 'Be the first to create a game in this category'
+                : 'Be the first to create a game!'
+              }
+            </Text>
             <TouchableOpacity 
               style={styles.emptyButton}
-              onPress={() => {
-                setShowNearby(false);
-                setSelectedCategory(null);
-                setGames(allGames);
-              }}
+              onPress={handleCreateGame}
             >
-              <Text style={styles.emptyButtonText}>Show All Games</Text>
+              <Text style={styles.emptyButtonText}>Create a Game</Text>
             </TouchableOpacity>
-          )}
-        </View>
-      ) : (
-        <FlatList
-          data={games}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContainer}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-          renderItem={({ item }) => (
-            <TouchableOpacity 
-              style={styles.gameCard}
-              onPress={() => router.push(`/game-details?id=${item.id}`)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.gameCardHeader}>
-                <Text style={styles.sportEmoji}>
-                  {item.categories?.emoji || getSportEmoji(item.sport)}
-                </Text>
-                <View style={styles.gameCardHeaderText}>
-                  <Text style={styles.sportName}>{item.sport}</Text>
-                  <Text style={styles.dateText}>{formatDate(item.dt)}</Text>
-                </View>
-                {item.categories && (
-                  <View style={styles.categoryBadge}>
-                    <Text style={styles.categoryBadgeText}>{item.categories.name}</Text>
-                  </View>
-                )}
-              </View>
-              
-              <View style={styles.gameCardBody}>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoIcon}>📍</Text>
-                  <Text style={styles.infoText}>{item.place}</Text>
-                </View>
-                
-                {item.description && (
-                  <Text style={styles.description} numberOfLines={2}>
-                    {item.description}
-                  </Text>
-                )}
-              </View>
-
-              <View style={styles.gameCardFooter}>
-                <View style={styles.playersInfo}>
-                  <Text style={styles.playersIcon}>👥</Text>
-                  <Text style={styles.playersText}>
-                    {item.max_players || 10} spots
-                  </Text>
-                </View>
-                <View style={styles.arrowContainer}>
-                  <Text style={styles.arrow}>→</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          )}
-        />
-      )}
+          </View>
+        ) : (
+          <FlatList
+            data={games}
+            keyExtractor={(item) => item.id}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.gamesList}
+            refreshControl={
+              <RefreshControl 
+                refreshing={refreshing} 
+                onRefresh={onRefresh}
+                tintColor="#667eea"
+              />
+            }
+            renderItem={({ item }) => <GameCard item={item} />}
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+          />
+        )}
+      </View>
     </View>
   );
 }
@@ -399,7 +510,9 @@ const styles = StyleSheet.create({
   header: {
     paddingTop: 60,
     paddingBottom: 30,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
   headerContent: {
     flexDirection: 'row',
@@ -407,235 +520,349 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 32,
-    fontWeight: 'bold',
+    fontSize: 28,
+    fontWeight: '700',
     color: 'white',
     marginBottom: 4,
   },
   headerSubtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: 'rgba(255,255,255,0.9)',
+    fontWeight: '500',
   },
   profileButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(255,255,255,0.3)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  profileButtonText: {
-    fontSize: 24,
-  },
   createButtonContainer: {
-    paddingHorizontal: 20,
-    marginTop: -25,
+    paddingHorizontal: 24,
+    marginTop: -20,
     marginBottom: 16,
   },
   createButton: {
-    borderRadius: 15,
+    borderRadius: 16,
     overflow: 'hidden',
-    elevation: 5,
-    shadowColor: '#000',
+    elevation: 8,
+    shadowColor: '#667eea',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowRadius: 12,
   },
   createButtonGradient: {
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+  },
+  createButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 18,
-    paddingHorizontal: 20,
   },
   createButtonIcon: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: 'white',
-    marginRight: 10,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
   },
-  createButtonText: {
+  createButtonTitle: {
     color: 'white',
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    marginBottom: 4,
   },
-  categoriesContainer: {
+  createButtonSubtitle: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  filterSection: {
+    backgroundColor: 'white',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 16,
+    padding: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  filterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 12,
   },
-  categoriesScrollContent: {
-    paddingHorizontal: 20,
+  filterTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#333',
+  },
+  clearFilterButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: '#f0f4ff',
+    borderRadius: 12,
+  },
+  clearFilterText: {
+    fontSize: 12,
+    color: '#667eea',
+    fontWeight: '600',
+  },
+  filtersContainer: {
     gap: 8,
   },
-  categoryPill: {
-    paddingHorizontal: 20,
+  filterPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: 'white',
-    borderWidth: 2,
-    borderColor: '#e0e0e0',
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1.5,
+    borderColor: '#e8ecf4',
+    gap: 6,
   },
-  categoryPillActive: {
+  filterPillActive: {
     backgroundColor: '#667eea',
     borderColor: '#667eea',
   },
-  categoryPillText: {
+  filterPillEmoji: {
+    fontSize: 14,
+  },
+  filterPillText: {
     fontSize: 14,
     color: '#666',
     fontWeight: '600',
   },
-  categoryPillTextActive: {
+  filterPillTextActive: {
     color: 'white',
   },
-  gamesCountContainer: {
-    paddingHorizontal: 20,
+  gamesSection: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
-  gamesCount: {
-    fontSize: 14,
-    color: '#999',
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#333',
   },
-  centerContent: {
+  gamesCountBadge: {
+    backgroundColor: '#667eea',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  gamesCountText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingVertical: 40,
   },
   loadingText: {
-    fontSize: 16,
-    color: '#999',
+    marginTop: 12,
+    fontSize: 14,
+    color: '#666',
   },
-  emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 40,
+  },
+  emptyIconContainer: {
+    marginBottom: 24,
   },
   emptyTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 20,
+    fontWeight: '700',
     color: '#333',
     marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#999',
     textAlign: 'center',
   },
+  emptyDescription: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
   emptyButton: {
-    marginTop: 20,
     backgroundColor: '#667eea',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 20,
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
   },
   emptyButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
   },
-  listContainer: {
-    paddingHorizontal: 20,
+  gamesList: {
     paddingBottom: 20,
+  },
+  separator: {
+    height: 12,
   },
   gameCard: {
     backgroundColor: 'white',
     borderRadius: 20,
-    marginBottom: 16,
-    overflow: 'hidden',
-    elevation: 3,
+    elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
+    overflow: 'hidden',
   },
-  gameCardHeader: {
+  gameCardContent: {
+    padding: 20,
+  },
+  gameHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#f8f9fa',
+    marginBottom: 16,
   },
-  sportEmoji: {
-    fontSize: 40,
+  sportIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: '#f0f4ff',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 16,
   },
-  gameCardHeaderText: {
+  sportIcon: {
+    fontSize: 28,
+  },
+  gameInfo: {
     flex: 1,
   },
-  sportName: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  dateText: {
-    fontSize: 14,
-    color: '#667eea',
-    fontWeight: '600',
-  },
-  categoryBadge: {
-    backgroundColor: '#667eea',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  categoryBadgeText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  gameCardBody: {
-    padding: 16,
-  },
-  infoRow: {
+  gameTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8,
+    flexWrap: 'wrap',
   },
-  infoIcon: {
-    fontSize: 16,
+  sportName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
     marginRight: 8,
+    flex: 1,
   },
-  infoText: {
-    fontSize: 16,
+  categoryTag: {
+    backgroundColor: '#e8f5e9',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  categoryTagText: {
+    fontSize: 10,
+    color: '#4caf50',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  gameMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  metaDivider: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#ddd',
+  },
+  metaText: {
+    fontSize: 12,
     color: '#666',
+    fontWeight: '500',
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 12,
+    gap: 8,
+  },
+  locationText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '600',
+    flex: 1,
   },
   description: {
-    fontSize: 14,
-    color: '#999',
-    marginTop: 8,
-    lineHeight: 20,
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 18,
+    marginBottom: 16,
   },
-  gameCardFooter: {
+  gameFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#f8f9fa',
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
+  },
+  playersContainer: {
+    flex: 1,
+    marginRight: 16,
   },
   playersInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  playersIcon: {
-    fontSize: 18,
-    marginRight: 6,
+    gap: 6,
+    marginBottom: 6,
   },
   playersText: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#666',
     fontWeight: '600',
   },
-  arrowContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#667eea',
-    justifyContent: 'center',
-    alignItems: 'center',
+  playersProgressBar: {
+    height: 4,
+    backgroundColor: '#e8ecf4',
+    borderRadius: 2,
+    overflow: 'hidden',
   },
-  arrow: {
-    fontSize: 18,
-    color: 'white',
-    fontWeight: 'bold',
+  playersProgressFill: {
+    height: '100%',
+    backgroundColor: '#667eea',
+    borderRadius: 2,
+  },
+  viewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#f0f4ff',
+    borderRadius: 8,
+  },
+  viewButtonText: {
+    fontSize: 12,
+    color: '#667eea',
+    fontWeight: '700',
   },
 });

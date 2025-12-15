@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, RefreshControl, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, RefreshControl, Image, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 
 export default function Profile() {
   const { user, signOut } = useAuth();
@@ -84,10 +85,8 @@ export default function Profile() {
 
   function onRefresh() {
     setRefreshing(true);
-    fetchProfile();
-    fetchMyGames();
-    fetchJoinedGames();
-    setRefreshing(false);
+    Promise.all([fetchProfile(), fetchMyGames(), fetchJoinedGames()])
+      .finally(() => setRefreshing(false));
   }
 
   async function pickImage() {
@@ -95,7 +94,7 @@ export default function Profile() {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       
       if (status !== 'granted') {
-        Alert.alert('Permission Required', 'We need permission to access your photos');
+        Alert.alert('Permission Required', 'Please allow access to your photos to upload a profile picture');
         return;
       }
 
@@ -103,7 +102,7 @@ export default function Profile() {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.5,
+        quality: 0.8,
         base64: true,
       });
 
@@ -116,50 +115,45 @@ export default function Profile() {
   }
 
   async function uploadImage(asset) {
-  setUploading(true);
-  try {
-    const fileName = `${user.id}-${Date.now()}.jpg`;
+    setUploading(true);
+    try {
+      const fileName = `${user.id}-${Date.now()}.jpg`;
+      const base64Data = asset.base64;
+      const binaryString = atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
 
-    // Convert base64 to Uint8Array
-    const base64Data = asset.base64;
-    const binaryString = atob(base64Data);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+      const { error: uploadError } = await supabase.storage
+        .from('profile-pictures')
+        .upload(fileName, bytes, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('profile-pictures')
+        .getPublicUrl(fileName);
+
+      const { error: updateError } = await supabase
+        .from('user_profiles')
+        .update({ profile_picture_url: publicUrl })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+
+      Alert.alert('Success', 'Profile picture updated successfully!');
+      fetchProfile();
+    } catch (error) {
+      console.error('Upload error:', error);
+      Alert.alert('Error', 'Failed to upload image: ' + error.message);
+    } finally {
+      setUploading(false);
     }
-
-    // Upload to Supabase Storage
-    const { error: uploadError } = await supabase.storage
-      .from('profile-pictures')
-      .upload(fileName, bytes, {
-        contentType: 'image/jpeg',
-        upsert: true,
-      });
-
-    if (uploadError) throw uploadError;
-
-    // Get public URL
-    const { data: { publicUrl } } = supabase.storage
-      .from('profile-pictures')
-      .getPublicUrl(fileName);
-
-    // Update user profile with image URL
-    const { error: updateError } = await supabase
-      .from('user_profiles')
-      .update({ profile_picture_url: publicUrl })
-      .eq('id', user.id);
-
-    if (updateError) throw updateError;
-
-    Alert.alert('Success', 'Profile picture updated!');
-    fetchProfile();
-  } catch (error) {
-    console.error('Upload error:', error);
-    Alert.alert('Error', 'Failed to upload image: ' + error.message);
-  } finally {
-    setUploading(false);
   }
-}
 
   async function handleLogout() {
     Alert.alert(
@@ -185,7 +179,12 @@ export default function Profile() {
 
   function formatDate(dateString) {
     const date = new Date(dateString);
-    return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleDateString([], { 
+      month: 'short', 
+      day: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
   }
 
   function getSportEmoji(sport) {
@@ -203,147 +202,244 @@ export default function Profile() {
       <View style={styles.container}>
         <LinearGradient
           colors={['#667eea', '#764ba2']}
-          style={styles.notLoggedInGradient}
+          style={styles.gradientFull}
         >
-          <Text style={styles.notLoggedInEmoji}>🔐</Text>
-          <Text style={styles.notLoggedInTitle}>Please Login</Text>
-          <Text style={styles.notLoggedInText}>Login to view your profile and games</Text>
-          
-          <TouchableOpacity 
-            style={styles.loginButton}
-            onPress={() => router.push('/login')}
-          >
-            <Text style={styles.loginButtonText}>Go to Login</Text>
-          </TouchableOpacity>
+          <View style={styles.authContainer}>
+            <Ionicons name="person-circle-outline" size={80} color="white" />
+            <Text style={styles.authTitle}>Welcome</Text>
+            <Text style={styles.authSubtitle}>Please login to access your profile</Text>
+            
+            <TouchableOpacity 
+              style={styles.authButton}
+              onPress={() => router.push('/login')}
+            >
+              <Text style={styles.authButtonText}>Sign In</Text>
+            </TouchableOpacity>
+          </View>
         </LinearGradient>
       </View>
     );
   }
 
-  return (
-    <ScrollView 
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      <LinearGradient
-        colors={['#667eea', '#764ba2']}
-        style={styles.header}
-      >
-        <TouchableOpacity 
-          style={styles.avatarContainer}
-          onPress={pickImage}
-          disabled={uploading}
-        >
-          {profile?.profile_picture_url ? (
-            <Image 
-              source={{ uri: profile.profile_picture_url }} 
-              style={styles.avatarImage}
-            />
-          ) : (
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {profile?.display_name?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || '?'}
-              </Text>
-            </View>
-          )}
-          <View style={styles.cameraIcon}>
-            <Text style={styles.cameraIconText}>📷</Text>
-          </View>
-        </TouchableOpacity>
-        {uploading && <Text style={styles.uploadingText}>Uploading...</Text>}
-        <Text style={styles.displayName}>{profile?.display_name || 'User'}</Text>
-        <Text style={styles.email}>{user.email}</Text>
-      </LinearGradient>
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#667eea" />
+        <Text style={styles.loadingText}>Loading profile...</Text>
+      </View>
+    );
+  }
 
-      <View style={styles.content}>
-        {/* Stats Cards */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{myGames.length}</Text>
-            <Text style={styles.statLabel}>Games Created</Text>
+  return (
+    <View style={styles.container}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh}
+            tintColor="#667eea"
+          />
+        }
+      >
+        {/* Header with Profile Info */}
+        <LinearGradient
+          colors={['#667eea', '#764ba2']}
+          style={styles.headerGradient}
+        >
+          <View style={styles.headerContent}>
+            <TouchableOpacity 
+              style={styles.profileImageContainer}
+              onPress={pickImage}
+              disabled={uploading}
+            >
+              {profile?.profile_picture_url ? (
+                <Image 
+                  source={{ uri: profile.profile_picture_url }} 
+                  style={styles.profileImage}
+                />
+              ) : (
+                <View style={styles.profileImagePlaceholder}>
+                  <Text style={styles.profileInitials}>
+                    {profile?.display_name?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || '?'}
+                  </Text>
+                </View>
+              )}
+              {uploading ? (
+                <View style={styles.uploadingOverlay}>
+                  <ActivityIndicator color="white" />
+                </View>
+              ) : (
+                <View style={styles.cameraBadge}>
+                  <Ionicons name="camera" size={16} color="white" />
+                </View>
+              )}
+            </TouchableOpacity>
+            
+            <View style={styles.profileInfo}>
+              <Text style={styles.profileName}>
+                {profile?.display_name || 'User'}
+              </Text>
+              <Text style={styles.profileEmail}>{user.email}</Text>
+            </View>
           </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{joinedGames.length}</Text>
-            <Text style={styles.statLabel}>Games Joined</Text>
+        </LinearGradient>
+
+        {/* Stats Section */}
+        <View style={styles.statsSection}>
+          <View style={styles.statsGrid}>
+            <View style={styles.statItem}>
+              <View style={[styles.statIcon, styles.statIcon1]}>
+                <Ionicons name="game-controller" size={24} color="#667eea" />
+              </View>
+              <Text style={styles.statNumber}>{myGames.length}</Text>
+              <Text style={styles.statLabel}>Created</Text>
+            </View>
+            
+            <View style={styles.divider} />
+            
+            <View style={styles.statItem}>
+              <View style={[styles.statIcon, styles.statIcon2]}>
+                <FontAwesome5 name="users" size={20} color="#667eea" />
+              </View>
+              <Text style={styles.statNumber}>{joinedGames.length}</Text>
+              <Text style={styles.statLabel}>Joined</Text>
+            </View>
+            
+            <View style={styles.divider} />
+            
+            <View style={styles.statItem}>
+              <View style={[styles.statIcon, styles.statIcon3]}>
+                <Ionicons name="calendar" size={24} color="#667eea" />
+              </View>
+              <Text style={styles.statNumber}>{myGames.length + joinedGames.length}</Text>
+              <Text style={styles.statLabel}>Total</Text>
+            </View>
           </View>
         </View>
 
-        {/* My Created Games */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🎮 My Created Games</Text>
-          {myGames.length === 0 ? (
-            <View style={styles.emptySection}>
-              <Text style={styles.emptyText}>You haven't created any games yet</Text>
+        {/* Content Sections */}
+        <View style={styles.content}>
+          {/* My Created Games */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <MaterialIcons name="sports" size={24} color="#333" />
+              <Text style={styles.sectionTitle}>My Games</Text>
             </View>
-          ) : (
-            myGames.map((game) => (
-              <View key={game.id} style={styles.gameCardContainer}>
+            
+            {myGames.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="add-circle-outline" size={48} color="#ccc" />
+                <Text style={styles.emptyStateText}>No games created yet</Text>
+                <TouchableOpacity 
+                  style={styles.createButton}
+                  onPress={() => router.push('/create-game')}
+                >
+                  <Text style={styles.createButtonText}>Create Your First Game</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              myGames.map((game) => (
+                <View key={game.id} style={styles.gameCard}>
+                  <View style={styles.gameCardHeader}>
+                    <View style={styles.gameSportInfo}>
+                      <Text style={styles.gameEmoji}>{getSportEmoji(game.sport)}</Text>
+                      <View>
+                        <Text style={styles.gameSport}>{game.sport}</Text>
+                        <Text style={styles.gameDate}>{formatDate(game.dt)}</Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity 
+                      style={styles.editButton}
+                      onPress={() => router.push(`/edit-game?id=${game.id}`)}
+                    >
+                      <Ionicons name="create-outline" size={20} color="#667eea" />
+                    </TouchableOpacity>
+                  </View>
+                  
+                  <View style={styles.gameCardBody}>
+                    <View style={styles.gameDetail}>
+                      <Ionicons name="location-outline" size={16} color="#666" />
+                      <Text style={styles.gameDetailText}>{game.place}</Text>
+                    </View>
+                  </View>
+                  
+                  <TouchableOpacity
+                    style={styles.viewGameButton}
+                    onPress={() => router.push(`/game-details?id=${game.id}`)}
+                  >
+                    <Text style={styles.viewGameButtonText}>View Details</Text>
+                    <Ionicons name="arrow-forward" size={16} color="white" />
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+          </View>
+
+          {/* Joined Games */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <FontAwesome5 name="user-friends" size={20} color="#333" />
+              <Text style={styles.sectionTitle}>Joined Games</Text>
+            </View>
+            
+            {joinedGames.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="people-outline" size={48} color="#ccc" />
+                <Text style={styles.emptyStateText}>No games joined yet</Text>
+                <TouchableOpacity 
+                  style={styles.browseButton}
+                  onPress={() => router.push('/games')}
+                >
+                  <Text style={styles.browseButtonText}>Browse Available Games</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              joinedGames.map((game) => (
                 <TouchableOpacity
+                  key={game.id}
                   style={styles.gameCard}
                   onPress={() => router.push(`/game-details?id=${game.id}`)}
                 >
-                  <Text style={styles.gameEmoji}>{getSportEmoji(game.sport)}</Text>
-                  <View style={styles.gameInfo}>
-                    <Text style={styles.gameSport}>{game.sport}</Text>
-                    <Text style={styles.gameDetails}>
-                      📍 {game.place} • 🕐 {formatDate(game.dt)}
-                    </Text>
+                  <View style={styles.gameCardHeader}>
+                    <View style={styles.gameSportInfo}>
+                      <Text style={styles.gameEmoji}>{getSportEmoji(game.sport)}</Text>
+                      <View>
+                        <Text style={styles.gameSport}>{game.sport}</Text>
+                        <Text style={styles.gameDate}>{formatDate(game.dt)}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.joinedBadge}>
+                      <Text style={styles.joinedBadgeText}>Joined</Text>
+                    </View>
                   </View>
-                  <View style={styles.arrowCircle}>
-                    <Text style={styles.arrow}>→</Text>
+                  
+                  <View style={styles.gameCardBody}>
+                    <View style={styles.gameDetail}>
+                      <Ionicons name="location-outline" size={16} color="#666" />
+                      <Text style={styles.gameDetailText}>{game.place}</Text>
+                    </View>
                   </View>
                 </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.editIconButton}
-                  onPress={() => router.push(`/edit-game?id=${game.id}`)}
-                >
-                  <Text style={styles.editIcon}>✏️</Text>
-                </TouchableOpacity>
-              </View>
-            ))
-          )}
+              ))
+            )}
+          </View>
         </View>
+        
+        <View style={styles.bottomSpacer} />
+      </ScrollView>
 
-        {/* Joined Games */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>✨ Games I Joined</Text>
-          {joinedGames.length === 0 ? (
-            <View style={styles.emptySection}>
-              <Text style={styles.emptyText}>You haven't joined any games yet</Text>
-            </View>
-          ) : (
-            joinedGames.map((game) => (
-              <TouchableOpacity
-                key={game.id}
-                style={styles.gameCard}
-                onPress={() => router.push(`/game-details?id=${game.id}`)}
-              >
-                <Text style={styles.gameEmoji}>{getSportEmoji(game.sport)}</Text>
-                <View style={styles.gameInfo}>
-                  <Text style={styles.gameSport}>{game.sport}</Text>
-                  <Text style={styles.gameDetails}>
-                    📍 {game.place} • 🕐 {formatDate(game.dt)}
-                  </Text>
-                </View>
-                <View style={styles.arrowCircle}>
-                  <Text style={styles.arrow}>→</Text>
-                </View>
-              </TouchableOpacity>
-            ))
-          )}
-        </View>
-
-        {/* Logout Button */}
+      {/* Logout Button (Fixed at bottom) */}
+      <View style={styles.bottomActions}>
         <TouchableOpacity 
           style={styles.logoutButton}
           onPress={handleLogout}
         >
-          <Text style={styles.logoutButtonText}>🚪 Logout</Text>
+          <Ionicons name="log-out-outline" size={20} color="white" />
+          <Text style={styles.logoutButtonText}>Logout</Text>
         </TouchableOpacity>
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -352,234 +448,345 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8f9fa',
   },
-  notLoggedInGradient: {
+  gradientFull: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
   },
-  notLoggedInEmoji: {
-    fontSize: 80,
-    marginBottom: 24,
+  authContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 40,
   },
-  notLoggedInTitle: {
+  authTitle: {
     fontSize: 32,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: 'white',
-    marginBottom: 12,
+    marginTop: 20,
+    marginBottom: 8,
   },
-  notLoggedInText: {
-    fontSize: 18,
+  authSubtitle: {
+    fontSize: 16,
     color: 'rgba(255,255,255,0.9)',
     textAlign: 'center',
     marginBottom: 32,
   },
-  loginButton: {
+  authButton: {
     backgroundColor: 'white',
     paddingHorizontal: 32,
     paddingVertical: 16,
-    borderRadius: 25,
-  },
-  loginButtonText: {
-    color: '#667eea',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  header: {
-    paddingTop: 60,
-    paddingBottom: 40,
+    borderRadius: 12,
+    minWidth: 200,
     alignItems: 'center',
   },
-  avatarContainer: {
-    position: 'relative',
-    marginBottom: 16,
+  authButtonText: {
+    color: '#667eea',
+    fontSize: 16,
+    fontWeight: '600',
   },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(255,255,255,0.3)',
+  loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 4,
-    borderColor: 'white',
+    backgroundColor: '#f8f9fa',
   },
-  avatarImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 4,
-    borderColor: 'white',
+  loadingText: {
+    marginTop: 16,
+    fontSize: 14,
+    color: '#666',
   },
-  avatarText: {
-    fontSize: 40,
-    fontWeight: 'bold',
-    color: 'white',
+  headerGradient: {
+    paddingTop: 60,
+    paddingBottom: 40,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
   },
-  cameraIcon: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#667eea',
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  profileImageContainer: {
+    position: 'relative',
+    marginRight: 20,
+  },
+  profileImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  profileImagePlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  profileInitials: {
+    fontSize: 32,
+    fontWeight: '600',
+    color: 'white',
+  },
+  cameraBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#667eea',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
     borderColor: 'white',
   },
-  cameraIconText: {
-    fontSize: 16,
+  uploadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  uploadingText: {
-    color: 'white',
-    fontSize: 14,
-    marginTop: 8,
+  profileInfo: {
+    flex: 1,
   },
-  displayName: {
-    fontSize: 28,
-    fontWeight: 'bold',
+  profileName: {
+    fontSize: 24,
+    fontWeight: '700',
     color: 'white',
     marginBottom: 4,
   },
-  email: {
-    fontSize: 16,
+  profileEmail: {
+    fontSize: 14,
     color: 'rgba(255,255,255,0.9)',
+  },
+  statsSection: {
+    marginTop: -20,
+    paddingHorizontal: 20,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 20,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    alignItems: 'center',
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  statIcon1: {
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+  },
+  statIcon2: {
+    backgroundColor: 'rgba(118, 75, 162, 0.1)',
+  },
+  statIcon3: {
+    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+  },
+  statNumber: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
+  },
+  divider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#eee',
+    marginHorizontal: 10,
   },
   content: {
     padding: 20,
-    marginTop: -20,
   },
-  statsContainer: {
+  section: {
+    marginBottom: 32,
+  },
+  sectionHeader: {
     flexDirection: 'row',
-    gap: 12,
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#333',
+    marginLeft: 12,
+  },
+  emptyState: {
+    backgroundColor: 'white',
+    padding: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#f0f0f0',
+    borderStyle: 'dashed',
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 12,
     marginBottom: 24,
   },
-  statCard: {
-    flex: 1,
+  createButton: {
+    backgroundColor: '#667eea',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  createButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  browseButton: {
+    backgroundColor: '#764ba2',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  browseButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  gameCard: {
     backgroundColor: 'white',
-    padding: 20,
     borderRadius: 16,
-    alignItems: 'center',
-    elevation: 2,
+    padding: 16,
+    marginBottom: 12,
+    elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
   },
-  statNumber: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#667eea',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 12,
-  },
-  emptySection: {
-    backgroundColor: 'white',
-    padding: 24,
-    borderRadius: 16,
+  gameCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
-  },
-  gameCardContainer: {
-    position: 'relative',
     marginBottom: 12,
   },
-  gameCard: {
+  gameSportInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'white',
-    padding: 16,
-    borderRadius: 16,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
   },
   gameEmoji: {
     fontSize: 32,
-    marginRight: 16,
-  },
-  gameInfo: {
-    flex: 1,
+    marginRight: 12,
   },
   gameSport: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '600',
     color: '#333',
-    marginBottom: 4,
   },
-  gameDetails: {
+  gameDate: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  editButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f0f4ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  joinedBadge: {
+    backgroundColor: '#e8f5e9',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  joinedBadgeText: {
+    fontSize: 10,
+    color: '#4caf50',
+    fontWeight: '600',
+  },
+  gameCardBody: {
+    marginBottom: 16,
+  },
+  gameDetail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  gameDetailText: {
     fontSize: 14,
     color: '#666',
+    marginLeft: 8,
   },
-  arrowCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  viewGameButton: {
     backgroundColor: '#667eea',
-    justifyContent: 'center',
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 10,
   },
-  arrow: {
-    fontSize: 16,
+  viewGameButtonText: {
     color: 'white',
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '600',
+    marginRight: 8,
   },
-  editIconButton: {
+  bottomSpacer: {
+    height: 100,
+  },
+  bottomActions: {
     position: 'absolute',
-    top: 12,
-    right: 12,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#667eea',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 3,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    elevation: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-  },
-  editIcon: {
-    fontSize: 18,
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
   },
   logoutButton: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 18,
-    borderRadius: 15,
+    backgroundColor: '#ff4757',
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 40,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
   },
   logoutButtonText: {
     color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
   },
 });

@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
+import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
+  
 
 export default function CreateGame() {
   const [sport, setSport] = useState('');
@@ -19,6 +22,8 @@ export default function CreateGame() {
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const { user } = useAuth();
   const router = useRouter();
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
 
   useEffect(() => {
     fetchCategories();
@@ -134,13 +139,25 @@ export default function CreateGame() {
           colors={['#667eea', '#764ba2']}
           style={styles.header}
         >
-          <Text style={styles.headerTitle}>Create New Game</Text>
-          <Text style={styles.headerSubtitle}>Fill in the details below</Text>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>Create New Game</Text>
+            <Text style={styles.headerSubtitle}>Fill in the details below</Text>
+          </View>
         </LinearGradient>
 
         <View style={styles.form}>
+          {/* Category Selection */}
           <View style={styles.section}>
-            <Text style={styles.label}>Category *</Text>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="grid-outline" size={20} color="#667eea" />
+              <Text style={styles.label}>Category *</Text>
+            </View>
             <View style={styles.categoriesContainer}>
               {categories.map((category) => (
                 <TouchableOpacity
@@ -165,10 +182,13 @@ export default function CreateGame() {
             </View>
           </View>
 
+          {/* Sport Name */}
           <View style={styles.section}>
-            <Text style={styles.label}>Sport Name *</Text>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="football-outline" size={20} color="#667eea" />
+              <Text style={styles.label}>Sport Name *</Text>
+            </View>
             <View style={styles.inputContainer}>
-              <Text style={styles.inputIcon}>⚽</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Sport name"
@@ -179,10 +199,13 @@ export default function CreateGame() {
             </View>
           </View>
 
+          {/* Location */}
           <View style={styles.section}>
-            <Text style={styles.label}>Location *</Text>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="location-outline" size={20} color="#667eea" />
+              <Text style={styles.label}>Location *</Text>
+            </View>
             <View style={styles.inputContainer}>
-              <Text style={styles.inputIcon}>📍</Text>
               <TextInput
                 style={styles.input}
                 placeholder="e.g., Central Park, Court 3"
@@ -196,46 +219,95 @@ export default function CreateGame() {
               onPress={getCurrentLocation}
               disabled={locationLoading}
             >
+              {locationLoading ? (
+                <ActivityIndicator size="small" color="#667eea" />
+              ) : (
+                <Ionicons name="navigate-outline" size={18} color="#667eea" />
+              )}
               <Text style={styles.locationButtonText}>
-                {locationLoading ? '🔄 Getting location...' : '📍 Use My Current Location'}
+                {locationLoading ? 'Getting location...' : 'Use My Current Location'}
               </Text>
             </TouchableOpacity>
           </View>
 
+                 {/* Date & Time */}
           <View style={styles.row}>
             <View style={[styles.section, styles.halfWidth]}>
-              <Text style={styles.label}>Date *</Text>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>📅</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#999"
-                  value={date}
-                  onChangeText={setDate}
-                />
+              <View style={styles.sectionHeader}>
+                <Ionicons name="calendar-outline" size={20} color="#667eea" />
+                <Text style={styles.label}>Date *</Text>
               </View>
+              <TouchableOpacity 
+                style={styles.inputContainer}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Text style={[styles.input, !date && styles.placeholderText]}>
+                  {date ? new Date(date).toLocaleDateString([], { 
+                    weekday: 'short', 
+                    month: 'short', 
+                    day: 'numeric' 
+                  }) : 'Select date'}
+                </Text>
+              </TouchableOpacity>
             </View>
 
             <View style={[styles.section, styles.halfWidth]}>
-              <Text style={styles.label}>Time *</Text>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>🕐</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="HH:MM"
-                  placeholderTextColor="#999"
-                  value={time}
-                  onChangeText={setTime}
-                />
+              <View style={styles.sectionHeader}>
+                <Ionicons name="time-outline" size={20} color="#667eea" />
+                <Text style={styles.label}>Time *</Text>
               </View>
+              <TouchableOpacity 
+                style={styles.inputContainer}
+                onPress={() => setShowTimePicker(true)}
+              >
+                <Text style={[styles.input, !time && styles.placeholderText]}>
+                  {time ? new Date(`2000-01-01T${time}`).toLocaleTimeString([], { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                  }) : 'Select time'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
 
+          {showDatePicker && (
+            <DateTimePicker
+              value={date ? new Date(date) : new Date()}
+              mode="date"
+              display="default"
+              onChange={(event, selectedDate) => {
+                setShowDatePicker(false);
+                if (selectedDate) {
+                  setDate(selectedDate.toISOString().split('T')[0]);
+                }
+              }}
+              minimumDate={new Date()}
+            />
+          )}
+
+          {showTimePicker && (
+            <DateTimePicker
+              value={time ? new Date(`2000-01-01T${time}`) : new Date()}
+              mode="time"
+              display="default"
+              onChange={(event, selectedTime) => {
+                setShowTimePicker(false);
+                if (selectedTime) {
+                  const hours = selectedTime.getHours().toString().padStart(2, '0');
+                  const minutes = selectedTime.getMinutes().toString().padStart(2, '0');
+                  setTime(`${hours}:${minutes}`);
+                }
+              }}
+            />
+          )}
+
+          {/* Max Players */}
           <View style={styles.section}>
-            <Text style={styles.label}>Max Players</Text>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="people-outline" size={20} color="#667eea" />
+              <Text style={styles.label}>Max Players</Text>
+            </View>
             <View style={styles.inputContainer}>
-              <Text style={styles.inputIcon}>👥</Text>
               <TextInput
                 style={styles.input}
                 placeholder="10"
@@ -247,8 +319,12 @@ export default function CreateGame() {
             </View>
           </View>
 
+          {/* Description */}
           <View style={styles.section}>
-            <Text style={styles.label}>Description (optional)</Text>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="document-text-outline" size={20} color="#667eea" />
+              <Text style={styles.label}>Description (optional)</Text>
+            </View>
             <View style={[styles.inputContainer, styles.textAreaContainer]}>
               <TextInput
                 style={[styles.input, styles.textArea]}
@@ -262,20 +338,26 @@ export default function CreateGame() {
             </View>
           </View>
 
+          {/* Create Button */}
           <TouchableOpacity 
             style={[styles.button, loading && styles.buttonDisabled]}
             onPress={handleCreateGame}
             disabled={loading}
           >
             <LinearGradient
-              colors={['#f093fb', '#f5576c']}
+              colors={['#667eea', '#764ba2']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={styles.buttonGradient}
             >
-              <Text style={styles.buttonText}>
-                {loading ? 'Creating...' : '✨ Create Game'}
-              </Text>
+              {loading ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <>
+                  <Ionicons name="add-circle" size={24} color="white" />
+                  <Text style={styles.buttonText}>Create Game</Text>
+                </>
+              )}
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -297,15 +379,31 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     paddingHorizontal: 20,
   },
+  backButton: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  headerContent: {
+    alignItems: 'center',
+  },
   headerTitle: {
-    fontSize: 32,
-    fontWeight: 'bold',
+    fontSize: 28,
+    fontWeight: '700',
     color: 'white',
     marginBottom: 8,
   },
   headerSubtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: 'rgba(255,255,255,0.9)',
+    fontWeight: '500',
   },
   form: {
     padding: 20,
@@ -314,11 +412,16 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 24,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
   label: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#333',
-    marginBottom: 12,
+    marginLeft: 8,
   },
   categoriesContainer: {
     flexDirection: 'row',
@@ -330,7 +433,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 20,
     backgroundColor: 'white',
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: '#e0e0e0',
   },
   categoryButtonActive: {
@@ -340,33 +443,26 @@ const styles = StyleSheet.create({
   categoryButtonText: {
     fontSize: 14,
     color: '#666',
-    fontWeight: '600',
+    fontWeight: '500',
   },
   categoryButtonTextActive: {
     color: 'white',
+    fontWeight: '600',
   },
   inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: 'white',
     borderRadius: 12,
     paddingHorizontal: 16,
     elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
   textAreaContainer: {
-    alignItems: 'flex-start',
     paddingVertical: 12,
   },
-  inputIcon: {
-    fontSize: 20,
-    marginRight: 12,
-  },
   input: {
-    flex: 1,
     paddingVertical: 16,
     fontSize: 16,
     color: '#333',
@@ -376,17 +472,20 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   locationButton: {
-    backgroundColor: '#667eea',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f0f4ff',
     paddingVertical: 12,
     borderRadius: 10,
-    alignItems: 'center',
     marginTop: 8,
+    gap: 8,
   },
   locationButtonDisabled: {
     opacity: 0.6,
   },
   locationButtonText: {
-    color: 'white',
+    color: '#667eea',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -398,25 +497,32 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   button: {
-    borderRadius: 15,
+    borderRadius: 12,
     overflow: 'hidden',
     marginTop: 10,
-    elevation: 5,
+    elevation: 4,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
     shadowRadius: 8,
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   buttonGradient: {
-    paddingVertical: 18,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+    gap: 10,
   },
   buttonText: {
     color: 'white',
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '600',
+  },
+
+    placeholderText: {
+    color: '#999',
   },
 });
