@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-  
 
 export default function CreateGame() {
   const [sport, setSport] = useState('');
@@ -20,6 +20,8 @@ export default function CreateGame() {
   const [locationLoading, setLocationLoading] = useState(false);
   const [categories, setCategories] = useState([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
+  const [gameImage, setGameImage] = useState(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const { user } = useAuth();
   const router = useRouter();
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -81,6 +83,71 @@ export default function CreateGame() {
     }
   }
 
+  async function pickImage() {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'We need permission to access your photos');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setGameImage(result.assets[0]);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to pick image: ' + error.message);
+    }
+  }
+
+  async function uploadGameImage() {
+    if (!gameImage) return null;
+
+    setUploadingImage(true);
+    try {
+      const fileName = `${user.id}-${Date.now()}.jpg`;
+
+      // Convert base64 to Uint8Array
+      const base64Data = gameImage.base64;
+      const binaryString = atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('game-pictures')
+        .upload(fileName, bytes, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('game-pictures')
+        .getPublicUrl(fileName);
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Upload error:', error);
+      Alert.alert('Warning', 'Image upload failed, but game will still be created');
+      return null;
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+
   async function handleCreateGame() {
     if (!user) {
       Alert.alert('Error', 'You must be logged in to create a game');
@@ -102,6 +169,9 @@ export default function CreateGame() {
     setLoading(true);
 
     try {
+      // Upload image if selected
+      const imageUrl = gameImage ? await uploadGameImage() : null;
+
       const { data, error } = await supabase
         .from('games')
         .insert([
@@ -113,6 +183,7 @@ export default function CreateGame() {
             description: description.trim(),
             created_by: user.id,
             category_id: selectedCategoryId,
+            game_picture_url: imageUrl,
           },
         ])
         .select();
@@ -152,6 +223,31 @@ export default function CreateGame() {
         </LinearGradient>
 
         <View style={styles.form}>
+          {/* Game Image */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="image-outline" size={20} color="#667eea" />
+              <Text style={styles.label}>Game Picture (optional)</Text>
+            </View>
+            <TouchableOpacity 
+              style={styles.imagePickerButton}
+              onPress={pickImage}
+              disabled={uploadingImage}
+            >
+              {gameImage ? (
+                <Image 
+                  source={{ uri: gameImage.uri }} 
+                  style={styles.gameImage}
+                />
+              ) : (
+                <View style={styles.imagePickerPlaceholder}>
+                  <Ionicons name="camera" size={40} color="#667eea" />
+                  <Text style={styles.imagePickerText}>Add Cover Photo</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+
           {/* Category Selection */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
@@ -230,7 +326,7 @@ export default function CreateGame() {
             </TouchableOpacity>
           </View>
 
-                 {/* Date & Time */}
+          {/* Date & Time */}
           <View style={styles.row}>
             <View style={[styles.section, styles.halfWidth]}>
               <View style={styles.sectionHeader}>
@@ -340,9 +436,9 @@ export default function CreateGame() {
 
           {/* Create Button */}
           <TouchableOpacity 
-            style={[styles.button, loading && styles.buttonDisabled]}
+            style={[styles.button, (loading || uploadingImage) && styles.buttonDisabled]}
             onPress={handleCreateGame}
-            disabled={loading}
+            disabled={loading || uploadingImage}
           >
             <LinearGradient
               colors={['#667eea', '#764ba2']}
@@ -350,7 +446,7 @@ export default function CreateGame() {
               end={{ x: 1, y: 0 }}
               style={styles.buttonGradient}
             >
-              {loading ? (
+              {(loading || uploadingImage) ? (
                 <ActivityIndicator color="white" />
               ) : (
                 <>
@@ -422,6 +518,35 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
     marginLeft: 8,
+  },
+  imagePickerButton: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: 'white',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  imagePickerPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f4ff',
+  },
+  imagePickerText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#667eea',
+    fontWeight: '600',
+  },
+  gameImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
   },
   categoriesContainer: {
     flexDirection: 'row',
@@ -521,8 +646,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
-
-    placeholderText: {
+  placeholderText: {
     color: '#999',
   },
 });
