@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 
@@ -11,7 +11,6 @@ export default function Register() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signUp } = useAuth();
   const router = useRouter();
 
   async function handleRegister() {
@@ -32,13 +31,38 @@ export default function Register() {
 
     setLoading(true);
     try {
-      await signUp(email, password, displayName);
-      Alert.alert('Welcome! 🎉', 'Your account has been created successfully!', [
-        { 
-          text: 'Continue', 
-          onPress: () => router.replace('/login') 
+      // Sign up with email confirmation required
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password: password,
+        options: {
+          data: {
+            name: displayName.trim(),
+            display_name: displayName.trim(),
+          },
         }
-      ]);
+      });
+
+      if (error) throw error;
+
+      if (data?.user) {
+        // Check if email confirmation is required
+        if (data.user.identities && data.user.identities.length === 0) {
+          Alert.alert('Email Already Registered', 'This email is already registered. Please login instead.');
+          router.push('/login');
+        } else {
+          Alert.alert(
+            'Verification Email Sent! ✉️',
+            `We've sent a verification link to ${email}.\n\nPlease check your email and click the link to activate your account.\n\nAfter verifying, you can login to start using the app.`,
+            [
+              {
+                text: 'OK',
+                onPress: () => router.push('/login')
+              }
+            ]
+          );
+        }
+      }
     } catch (error) {
       Alert.alert('Registration Failed', error.message || 'Please try again');
     } finally {

@@ -1,0 +1,32 @@
+AI Usage Log
+
+Gjatë zhvillimit të aplikacionit mobil “Sports Pickup Games”, kam përdorur një mjet të inteligjencës artificiale (Claude AI) si ndihmë mësimore dhe udhëzuese.
+
+Jam fillestar në zhvillimin e aplikacioneve mobile, prandaj kisha nevojë për shpjegime shumë të detajuara dhe hap-pas-hapi. AI u përdor për të më udhëzuar gjatë gjithë procesit të krijimit të aplikacionit duke përdorur React Native me Expo Snack, Supabase për databazën dhe Visual Studio Code për shkrimin e kodit.
+
+Qëllimi i përdorimit të AI:
+- Të kuptoj si të filloj projektin nga zero
+- Të mësoj si të krijoj dhe përdor një GitHub repository
+- Të kuptoj strukturën e projektit në React Native
+- Të mësoj si të lidh aplikacionin me Supabase dhe të ruaj të dhëna
+- Të kuptoj gabimet që më shfaqeshin gjatë zhvillimit dhe mënyrën e rregullimit të tyre
+- Të mësoj si të krijoj forma për krijimin dhe bashkimin në ndeshje dhe si t’i shfaq ndeshjet në mënyrë kronologjike
+
+How I asked AI (examples of prompts used):
+- "Explain everything step by step, I am very new to React Native"
+- "Where exactly should I paste this code in Visual Studio Code?"
+- "I am getting this error, what does it mean and how do I fix it?"
+- "Can you explain the folder structure of this project?"
+- "Wait, let me finish this step and I will tell you when I am ready to continue"
+- "Here is a screenshot of my project structure, can you explain what is wrong?"
+
+Mënyra e përdorimit:
+- AI u përdor si mentor dhe udhërrëfyes, jo si zëvendësim i punës sime
+- Çdo hap u realizua vetëm pasi e kuptoja dhe e zbatoja vetë
+- Gabimet dhe problemet u analizuan dhe u rregulluan me shpjegime, jo me kopjim të drejtpërdrejtë
+
+Kufizime dhe përgjegjësi:
+- Asnjë zgjidhje e plotë nuk është kopjuar verbërisht nga AI
+- I gjithë kodi është shkruar, testuar dhe modifikuar nga unë
+- AI është përdorur vetëm për mësim dhe udhëzim
+- Përgjegjësia për funksionalitetin dhe korrektësinë e aplikacionit mbetet e imja
