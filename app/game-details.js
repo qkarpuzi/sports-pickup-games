@@ -74,7 +74,7 @@ export default function GameDetails() {
           data.map(async (participant) => {
             try {
               const { data: profile } = await supabase
-                .from('user_profiles')
+                .from('profiles')
                 .select('display_name')
                 .eq('id', participant.user_id)
                 .single();

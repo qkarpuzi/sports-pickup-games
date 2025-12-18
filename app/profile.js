@@ -28,7 +28,7 @@ export default function Profile() {
   async function fetchProfile() {
     try {
       const { data, error } = await supabase
-        .from('user_profiles')
+        .from('profiles')
         .select('*')
         .eq('id', user.id)
         .single();
@@ -139,7 +139,7 @@ export default function Profile() {
         .getPublicUrl(fileName);
 
       const { error: updateError } = await supabase
-        .from('user_profiles')
+        .from('profiles')
         .update({ profile_picture_url: publicUrl })
         .eq('id', user.id);
 
